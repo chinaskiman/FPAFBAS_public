@@ -1,68 +1,87 @@
 # Deployment & Operations
 
-## Local Quickstart (Docker Compose)
+## Local Quickstart
 
-```powershell
+```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-The app will be available at:
 - Web UI: `http://localhost/`
 - API: `http://localhost/api/`
 
-## VPS 24/7 Stack (HTTPS + Reverse Proxy)
+## VPS 24/7 (HTTPS + Public Frontend)
 
-This repo includes a dedicated production stack:
-- `docker-compose.vps.yml` (resource limits + log rotation)
-- `deploy/Caddyfile` (automatic Let's Encrypt TLS)
+This repo includes:
+- `docker-compose.vps.yml` (api + web + caddy, restart policies, limits, log rotation)
+- `deploy/Caddyfile` (automatic TLS via Let's Encrypt)
+- `scripts/vps_preflight.sh` (checks VPS prerequisites)
+- `scripts/vps_deploy.sh` (deploy + health checks)
+- `scripts/vps_healthcheck.sh` (post-deploy verification)
 
 ### Prerequisites
 
-1. Point your DNS `A` record to the VPS IP.
-2. Open inbound ports `80` and `443` on VPS firewall/security group.
-3. Install Docker Engine + Docker Compose plugin on the VPS.
+1. DNS `A` record points `DOMAIN` to your VPS IP.
+2. VPS firewall/security group allows inbound `80/tcp` and `443/tcp`.
+3. Docker Engine + Docker Compose plugin installed.
+4. Repository cloned on VPS.
 
-### Configure Environment
+### First Deploy (Recommended)
 
 ```bash
 cp .env.example .env
 ```
 
-Set at minimum in `.env`:
+Set these in `.env`:
 - `ADMIN_TOKEN` (long random value)
-- `DOMAIN` (your public hostname)
-- `ACME_EMAIL` (certificate registration email)
-- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (if notifications enabled)
+- `DOMAIN` (example: `bot.example.com`)
+- `ACME_EMAIL` (Let's Encrypt email)
+- `CORS_ORIGINS=https://<DOMAIN>`
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (optional)
 
-### Start Production Stack
+Then run:
 
 ```bash
-docker compose -f docker-compose.vps.yml up -d --build
+chmod +x scripts/vps_preflight.sh scripts/vps_deploy.sh scripts/vps_healthcheck.sh
+bash scripts/vps_deploy.sh
 ```
 
-The app will be available at:
-- Web UI: `https://<DOMAIN>/`
-- API: `https://<DOMAIN>/api/`
+After success:
+- Frontend: `https://<DOMAIN>/`
+- API ready check: `https://<DOMAIN>/api/readyz`
+- Forward test status: `https://<DOMAIN>/api/forward_test/status`
+
+### Ongoing Updates
+
+```bash
+git pull
+bash scripts/vps_deploy.sh
+```
+
+If image rebuild is not needed:
+
+```bash
+bash scripts/vps_deploy.sh --no-build
+```
 
 ## Environment Variables
 
 Required for admin/ops:
-- `ADMIN_TOKEN` (Bearer token for `/api/poller/*`, `/api/telegram/test`, `/api/alerts/export.csv`)
+- `ADMIN_TOKEN` (Bearer token for `/api/poller/*`, `/api/telegram/test`, CSV exports, forward-test mode)
 
-Common settings:
+Core runtime:
 - `DATA_DIR` (default: `/data`)
 - `SQLITE_PATH` (default: `/data/app.db`)
 - `WATCHLIST_PATH` (default: `/data/watchlist.json`)
 - `POLLER_LOCK_PATH` (default: `/data/poller.lock`)
 - `POLL_SECONDS` (default: `15`)
-- `CORS_ORIGINS` (comma-separated)
+- `CORS_ORIGINS` (comma-separated origins)
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
-- `DOMAIN` (for TLS proxy host, used by Caddy)
-- `ACME_EMAIL` (for Let's Encrypt account)
+- `DOMAIN` (TLS host for Caddy)
+- `ACME_EMAIL` (Let's Encrypt account email)
 
-Forward test settings:
+Forward test:
 - `FT_STARTING_EQUITY` (default `10000`)
 - `FT_LEVERAGE` (default `20`)
 - `FT_RISK_PCT` (default `0.01`)
@@ -75,51 +94,37 @@ Forward test settings:
 
 ## Data Persistence
 
-The Compose file mounts `./data` into the container at `/data`:
-- SQLite DB: `/data/app.db`
-- Watchlist JSON: `/data/watchlist.json`
+Bind mount:
+- Host `./data` -> container `/data`
+
+Persisted files:
+- SQLite: `/data/app.db`
+- Watchlist: `/data/watchlist.json`
 - Poller lock: `/data/poller.lock`
 
-For VPS TLS certificates, Caddy stores cert state in the Docker volumes:
+Caddy cert/state volumes:
 - `caddy_data`
 - `caddy_config`
 
 ## Health Checks
 
-- `GET /healthz` -> process alive
-- `GET /readyz` -> DB + watchlist dir OK + poller status
-
-## Safe Updates
-
-1. Update code and rebuild:
-   ```bash
-   docker compose -f docker-compose.vps.yml up -d --build
-   ```
-2. Verify readiness:
-   ```bash
-   curl https://<DOMAIN>/api/readyz
-   ```
+- Liveness: `GET /healthz`
+- Readiness: `GET /readyz`
+- Forward test runtime: `GET /api/forward_test/status`
+- Combined check script:
+  ```bash
+  bash scripts/vps_healthcheck.sh
+  ```
 
 ## Backups and Restore
 
-Linux scripts are included:
-
 ```bash
 chmod +x scripts/backup_data.sh scripts/restore_data.sh
-```
-
-Create a backup (brief API pause for SQLite consistency):
-```bash
 bash scripts/backup_data.sh
-```
-
-Restore from a backup archive:
-```bash
 bash scripts/restore_data.sh backups/fpafbas-backup-YYYYMMDDTHHMMSSZ.tar.gz
 ```
 
-## Notes on Poller Lock
+## Poller Lock Note
 
-Only one poller runs per host thanks to the filesystem lock at `/data/poller.lock`.
-Do **not** scale `api` replicas unless you move the poller into a separate service or
-add a distributed leader election.
+Only one poller runs per host through `/data/poller.lock`.
+Do not scale `api` replicas unless you introduce distributed leader election.

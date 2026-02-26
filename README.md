@@ -40,6 +40,17 @@ docker compose up -d --build
 
 The web UI will be at `http://localhost/`.
 
+### VPS (Public HTTPS + 24/7)
+
+```bash
+cp .env.example .env
+# set ADMIN_TOKEN, DOMAIN, ACME_EMAIL, CORS_ORIGINS=https://<DOMAIN>
+chmod +x scripts/vps_preflight.sh scripts/vps_deploy.sh scripts/vps_healthcheck.sh
+bash scripts/vps_deploy.sh
+```
+
+The web UI will be at `https://<DOMAIN>/`.
+
 ## Environment (.env)
 
 The backend loads env vars from `backend/.env` (if present) via `python-dotenv`.
