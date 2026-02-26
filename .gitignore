@@ -5,5 +5,7 @@ frontend/dist/
 backend/.venv/
 .pytest_cache/
 backend/.pytest_cache/
+__pycache__/
+*.pyc
 data/*.db
 data/poller.lock
