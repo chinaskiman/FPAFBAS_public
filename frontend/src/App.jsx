@@ -8,6 +8,7 @@ import LevelsPage from "./pages/LevelsPage.jsx";
 import OpsPage from "./pages/OpsPage.jsx";
 import ReplayPage from "./pages/ReplayPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
+import ForwardTestPage from "./pages/ForwardTestPage.jsx";
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/journal" element={<JournalPage />} />
         <Route path="/journal/:signalId" element={<JournalDetailPage />} />
         <Route path="/levels" element={<LevelsPage />} />
+        <Route path="/forward-test" element={<ForwardTestPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/ops" element={<OpsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

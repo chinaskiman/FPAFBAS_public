@@ -62,6 +62,17 @@ Common settings:
 - `DOMAIN` (for TLS proxy host, used by Caddy)
 - `ACME_EMAIL` (for Let's Encrypt account)
 
+Forward test settings:
+- `FT_STARTING_EQUITY` (default `10000`)
+- `FT_LEVERAGE` (default `20`)
+- `FT_RISK_PCT` (default `0.01`)
+- `FT_MAX_POSITIONS` (default `3`)
+- `FT_FEE_RATE` (default `0.001`)
+- `FT_TP_R` (default `2.0`)
+- `FT_CANCEL_AFTER_CANDLES` (default `3`)
+- `FT_RISK_FREE_RATE` (default `0.02`)
+- `FT_TIMEZONE` (default `Europe/Berlin`)
+
 ## Data Persistence
 
 The Compose file mounts `./data` into the container at `/data`:

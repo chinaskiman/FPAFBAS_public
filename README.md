@@ -107,6 +107,14 @@ Operator:
 - `POST /api/poller/mode` `{ "mode": "run|pause_new|pause_all" }` (admin)
 - `POST /api/telegram/test` (admin)
 - `GET /api/alerts/export.csv` (admin)
+- `GET /api/forward_test/export.csv` (admin)
+
+Forward test:
+- `GET /api/forward_test/status`
+- `GET /api/forward_test/summary`
+- `GET /api/forward_test/equity?limit=3000`
+- `GET /api/forward_test/trades?limit=200&offset=0`
+- `POST /api/forward_test/mode` `{ "enabled": true|false }` (admin)
 
 Replay:
 - `GET /api/replay/{symbol}/{tf}?from_ms=...&to_ms=...&step=...&warmup=...`
@@ -119,6 +127,7 @@ Replay:
 - Replay UI with scrubber + signal details.
 - Alert review with filtering/pagination and Telegram message preview.
 - Journal page with filters, detail drawer, and JSONL export (admin token required).
+- Forward Test page with live paper-trading metrics, equity/drawdown charts, regime/time analytics, and trade table export.
 
 ## Auto Journal
 
@@ -131,6 +140,15 @@ Env vars:
 - `JOURNAL_DB_URL` (optional; if unset, uses `data/journal.db`)
 - `JOURNAL_INTRACANDLE_MODEL` (reserved for outcome tracking; default `worst_case`)
 - `ADMIN_TOKEN` (required for `/api/journal/export.jsonl`)
+- `FT_STARTING_EQUITY` (default `10000`)
+- `FT_LEVERAGE` (default `20`)
+- `FT_RISK_PCT` (default `0.01`)
+- `FT_MAX_POSITIONS` (default `3`)
+- `FT_FEE_RATE` (default `0.001`)
+- `FT_TP_R` (default `2.0`)
+- `FT_CANCEL_AFTER_CANDLES` (default `3`)
+- `FT_RISK_FREE_RATE` (default `0.02`)
+- `FT_TIMEZONE` (default `Europe/Berlin`)
 
 UI:
 - Open the **Journal** section in the dashboard to browse entries.

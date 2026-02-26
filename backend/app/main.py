@@ -49,6 +49,7 @@ from .alert_poller import AlertPoller
 from .notifier import TelegramNotifier
 from .quality_controls import QualitySettings
 from .replay import replay_run, replay_summary
+from .forward_test import ForwardTestService
 
 
 load_dotenv()
@@ -87,6 +88,9 @@ def on_startup() -> None:
     journal = JournalStore()
     journal.init_db()
     app.state.journal = journal
+    forward_test = ForwardTestService()
+    forward_test.initialize()
+    app.state.forward_test = forward_test
     notifier = TelegramNotifier()
     app.state.notifier = notifier
     poll_seconds = get_poll_seconds()
@@ -103,6 +107,7 @@ def on_startup() -> None:
                 ingest=None,
                 notifier=notifier,
                 journal=journal,
+                forward_tester=forward_test,
                 poll_seconds=poll_seconds,
                 start_paused=start_paused,
             )
@@ -122,6 +127,7 @@ def on_startup() -> None:
             ingest=ingest,
             notifier=notifier,
             journal=journal,
+            forward_tester=forward_test,
             poll_seconds=poll_seconds,
             start_paused=start_paused,
         )
@@ -475,6 +481,72 @@ async def api_poller_mode(request: Request) -> dict:
         raise HTTPException(status_code=400, detail="Invalid mode")
     poller.set_mode(mode)
     return poller.state.to_dict()
+
+
+def _get_forward_test_service():
+    service = getattr(app.state, "forward_test", None)
+    if service is None:
+        raise HTTPException(status_code=503, detail="Forward test service not initialized")
+    return service
+
+
+@app.get("/api/forward_test/status")
+def api_forward_test_status() -> dict:
+    service = _get_forward_test_service()
+    return service.get_status()
+
+
+@app.get("/api/forward_test/summary")
+def api_forward_test_summary() -> dict:
+    service = _get_forward_test_service()
+    return service.get_summary()
+
+
+@app.get("/api/forward_test/equity")
+def api_forward_test_equity(limit: int = 2000) -> dict:
+    service = _get_forward_test_service()
+    return {"items": service.list_equity(limit=limit)}
+
+
+@app.get("/api/forward_test/trades")
+def api_forward_test_trades(
+    limit: int = 200,
+    offset: int = 0,
+    symbol: str | None = None,
+    tf: str | None = None,
+    direction: str | None = None,
+) -> dict:
+    service = _get_forward_test_service()
+    items, total = service.list_trades(limit=limit, offset=offset, symbol=symbol, tf=tf, direction=direction)
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+@app.get("/api/forward_test/export.csv", dependencies=[Depends(require_admin)])
+def api_forward_test_export_csv() -> Response:
+    service = _get_forward_test_service()
+    payload = service.export_trades_csv()
+    return Response(
+        content=payload,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=forward_test_trades.csv"},
+    )
+
+
+@app.post("/api/forward_test/mode", dependencies=[Depends(require_admin)])
+async def api_forward_test_mode(request: Request) -> dict:
+    service = _get_forward_test_service()
+    payload = await request.json()
+    enabled = payload.get("enabled") if isinstance(payload, dict) else None
+    mode = payload.get("mode") if isinstance(payload, dict) else None
+    if isinstance(enabled, bool):
+        return service.set_enabled(enabled)
+    if isinstance(mode, str):
+        mode_normalized = mode.strip().lower()
+        if mode_normalized == "run":
+            return service.set_enabled(True)
+        if mode_normalized in {"pause", "stop"}:
+            return service.set_enabled(False)
+    raise HTTPException(status_code=400, detail="Invalid mode payload; use {'enabled': true|false}")
 
 
 @app.post("/api/telegram/test", dependencies=[Depends(require_admin)])

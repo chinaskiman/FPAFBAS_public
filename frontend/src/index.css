@@ -598,6 +598,77 @@ pre {
   color: var(--muted);
 }
 
+.forward-test-page {
+  display: grid;
+  gap: 16px;
+}
+
+.forward-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.stat-item {
+  background: #f8f2e8;
+  border: 1px solid #e8d9bf;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.forward-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  background: #fff;
+  border: 1px solid #eadfcf;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chart-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #eadfcf;
+  border-radius: 10px;
+}
+
+.svg-chart {
+  width: 100%;
+  min-width: 720px;
+  height: auto;
+  display: block;
+}
+
+.chart-label {
+  fill: #5d4b35;
+  font-size: 12px;
+}
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.pos {
+  color: #0f6b5c;
+  font-weight: 600;
+}
+
+.neg {
+  color: #7a2f2f;
+  font-weight: 600;
+}
+
 @media (max-width: 720px) {
   .layout {
     flex-direction: column;
@@ -628,5 +699,9 @@ pre {
 
   h1 {
     font-size: 1.8rem;
+  }
+
+  .svg-chart {
+    min-width: 560px;
   }
 }

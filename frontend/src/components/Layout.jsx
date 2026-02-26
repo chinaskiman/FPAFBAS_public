@@ -6,6 +6,7 @@ const navItems = [
   { to: "/replay", label: "Replay" },
   { to: "/journal", label: "Journal" },
   { to: "/levels", label: "Levels" },
+  { to: "/forward-test", label: "Forward Test" },
   { to: "/settings", label: "Settings" },
   { to: "/ops", label: "Ops" }
 ];

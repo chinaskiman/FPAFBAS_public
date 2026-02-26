@@ -65,6 +65,7 @@ class AlertPoller:
         ingest,
         notifier,
         journal=None,
+        forward_tester=None,
         poll_seconds: int = 15,
         start_paused: bool = False,
         start_mode: str | None = None,
@@ -72,6 +73,7 @@ class AlertPoller:
         self.ingest = ingest
         self.notifier = notifier
         self.journal = journal
+        self.forward_tester = forward_tester
         self.poll_seconds = poll_seconds
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -120,6 +122,7 @@ class AlertPoller:
         while not self._stop_event.is_set():
             self.state.last_tick_at = _now_ms()
             if self.state.mode == "pause_all":
+                self._process_forward_only()
                 self._stop_event.wait(self.poll_seconds)
                 continue
             try:
@@ -134,6 +137,23 @@ class AlertPoller:
                 self.state.last_error = str(exc)
             self._stop_event.wait(self.poll_seconds)
         self.state.is_running = False
+
+    def _process_forward_only(self) -> None:
+        if self.ingest is None or self.forward_tester is None:
+            return
+        try:
+            config = load_watchlist()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Forward tester watchlist load failed: %s", exc)
+            return
+        for symbol_cfg in config.symbols:
+            if not symbol_cfg.enabled:
+                continue
+            for tf in symbol_cfg.entry_tfs:
+                try:
+                    self.forward_tester.process_symbol_tf(self.ingest, symbol_cfg.symbol, tf)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Forward tester processing failed for %s %s: %s", symbol_cfg.symbol, tf, exc)
 
     def run_once(self, mode: str = "run") -> tuple[int, int, int, Optional[str]]:
         if self.ingest is None:
@@ -156,6 +176,11 @@ class AlertPoller:
             if symbol not in symbol_counts:
                 symbol_counts[symbol] = count_alerts(symbol, window_start)
             for tf in symbol_cfg.entry_tfs:
+                if self.forward_tester is not None:
+                    try:
+                        self.forward_tester.process_symbol_tf(self.ingest, symbol, tf)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.error("Forward tester processing failed for %s %s: %s", symbol, tf, exc)
                 scan_count += 1
                 try:
                     openings = build_openings(self.ingest, config, symbol, tf, limit=300)
@@ -237,6 +262,12 @@ class AlertPoller:
                     inserted, row = insert_alert_if_new(alert)
                     if not inserted or not row:
                         continue
+                    if self.forward_tester is not None:
+                        try:
+                            alert_for_forward = {**alert, "id": row["id"]}
+                            self.forward_tester.register_signal(alert_for_forward, signal_payload=signal)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.error("Forward tester signal registration failed: %s", exc)
                     self._journal_signal(openings, signal, alert)
                     new_alerts += 1
                     symbol_counts[symbol] += 1
