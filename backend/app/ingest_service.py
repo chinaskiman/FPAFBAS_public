@@ -49,6 +49,7 @@ class IngestService:
         self._stop_event = threading.Event()
         self._ws_thread: threading.Thread | None = None
         self._ws: websocket.WebSocketApp | None = None
+        self._stream_symbols: set[str] = set()
 
     def _cache_maxlen_for_tf(self, tf: str) -> int:
         if tf == "1w":
@@ -64,26 +65,40 @@ class IngestService:
             return
 
         for symbol in symbols_list:
-            with self._lock:
-                self.tracked[symbol] = list(BOOTSTRAP_TFS)
-            for tf in BOOTSTRAP_TFS:
-                limit = self.rest_limits[tf]
-                logger.info("Bootstrapping %s %s with %s candles", symbol, tf, limit)
-                candles = self.rest_client.get_klines(symbol, tf, limit)
-                cache = CandleCache(maxlen=self._cache_maxlen_for_tf(tf))
-                cache.extend(candles)
-                with self._lock:
-                    self.caches[(symbol, tf)] = cache
-                self._recompute(symbol, tf, cache)
-                if tf in ("1w", "1d"):
-                    self._recompute_bias(symbol, tf, cache)
+            self._bootstrap_symbol(symbol)
+
+    def sync_symbols(self, symbols: Iterable[str]) -> dict:
+        desired_symbols = sorted({symbol.upper() for symbol in symbols if symbol})
+        desired_set = set(desired_symbols)
+        with self._lock:
+            current_symbols = set(self.tracked.keys())
+
+        added = [symbol for symbol in desired_symbols if symbol not in current_symbols]
+        removed = [symbol for symbol in sorted(current_symbols) if symbol not in desired_set]
+
+        for symbol in added:
+            self._bootstrap_symbol(symbol)
+
+        for symbol in removed:
+            self._drop_symbol(symbol)
+
+        self.start_streaming(desired_symbols)
+        return {
+            "added": added,
+            "removed": removed,
+            "streaming": desired_symbols,
+        }
 
     def start_streaming(self, symbols: Iterable[str]) -> None:
-        symbols_list = [symbol.upper() for symbol in symbols]
+        symbols_list = sorted({symbol.upper() for symbol in symbols if symbol})
+        target_symbols = set(symbols_list)
+        if self._ws_thread and self._ws_thread.is_alive():
+            if target_symbols == self._stream_symbols:
+                return
+            self.stop_streaming()
         if not symbols_list:
             logger.info("No enabled symbols; skipping websocket streaming.")
-            return
-        if self._ws_thread and self._ws_thread.is_alive():
+            self._stream_symbols = set()
             return
 
         self._stop_event.clear()
@@ -94,8 +109,12 @@ class IngestService:
             name="binance-ws",
         )
         self._ws_thread.start()
+        self._stream_symbols = target_symbols
 
     def stop(self) -> None:
+        self.stop_streaming()
+
+    def stop_streaming(self) -> None:
         self._stop_event.set()
         if self._ws is not None:
             try:
@@ -104,6 +123,9 @@ class IngestService:
                 logger.exception("Failed to close websocket cleanly")
         if self._ws_thread and self._ws_thread.is_alive():
             self._ws_thread.join(timeout=5)
+        self._ws_thread = None
+        self._ws = None
+        self._stream_symbols = set()
 
     def list_candles(self, symbol: str, tf: str, limit: int) -> List[dict] | None:
         cache = self.get_cache(symbol, tf)
@@ -182,6 +204,32 @@ class IngestService:
                 self.journal.fill_entry_from_candle(symbol, tf, candle)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Journal entry fill failed: %s", exc)
+
+    def _bootstrap_symbol(self, symbol: str) -> None:
+        with self._lock:
+            self.tracked[symbol] = list(BOOTSTRAP_TFS)
+        for tf in BOOTSTRAP_TFS:
+            limit = self.rest_limits[tf]
+            logger.info("Bootstrapping %s %s with %s candles", symbol, tf, limit)
+            candles = self.rest_client.get_klines(symbol, tf, limit)
+            cache = CandleCache(maxlen=self._cache_maxlen_for_tf(tf))
+            cache.extend(candles)
+            with self._lock:
+                self.caches[(symbol, tf)] = cache
+            self._recompute(symbol, tf, cache)
+            if tf in ("1w", "1d"):
+                self._recompute_bias(symbol, tf, cache)
+
+    def _drop_symbol(self, symbol: str) -> None:
+        symbol_upper = symbol.upper()
+        with self._lock:
+            self.tracked.pop(symbol_upper, None)
+            for key in [key for key in self.caches if key[0] == symbol_upper]:
+                self.caches.pop(key, None)
+            for key in [key for key in self.derived if key[0] == symbol_upper]:
+                self.derived.pop(key, None)
+            for key in [key for key in self.biases if key[0] == symbol_upper]:
+                self.biases.pop(key, None)
 
     def _run_ws(self, symbols: List[str]) -> None:
         streams = [f"{symbol.lower()}@kline_{tf}" for symbol in symbols for tf in STREAM_TFS]

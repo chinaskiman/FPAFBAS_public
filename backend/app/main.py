@@ -216,7 +216,19 @@ async def api_watchlist_put(request: Request) -> dict:
             [".".join(map(str, error.get("loc", []))) + f": {error.get('msg')}" for error in exc.errors()]
         )
         raise HTTPException(status_code=400, detail=details or "Invalid watchlist payload") from exc
-    return {"status": "ok", "watchlist": config.model_dump(by_alias=True)}
+    ingest_sync = None
+    ingest = getattr(app.state, "ingest", None)
+    if ingest is not None:
+        enabled_symbols = [symbol.symbol for symbol in config.symbols if symbol.enabled]
+        try:
+            ingest_sync = ingest.sync_symbols(enabled_symbols)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Ingest watchlist sync failed: %s", exc)
+            ingest_sync = {"error": str(exc), "added": [], "removed": [], "streaming": []}
+    response = {"status": "ok", "watchlist": config.model_dump(by_alias=True)}
+    if ingest_sync is not None:
+        response["ingest_sync"] = ingest_sync
+    return response
 
 
 @app.get("/api/alerts")

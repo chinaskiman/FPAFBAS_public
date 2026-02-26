@@ -5,6 +5,19 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
+class FakeIngest:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def sync_symbols(self, symbols) -> dict:
+        normalized = sorted({symbol.upper() for symbol in symbols})
+        self.calls.append(normalized)
+        return {"added": [], "removed": [], "streaming": normalized}
+
+    def stop(self) -> None:
+        return
+
+
 def _base_watchlist():
     return {
         "symbols": [
@@ -95,3 +108,47 @@ def test_watchlist_put_invalid_symbol(monkeypatch, tmp_path):
         resp = client.put("/api/watchlist", json=payload)
         assert resp.status_code == 400
         assert "symbol" in resp.json().get("detail", "")
+
+
+def test_watchlist_put_triggers_ingest_sync(monkeypatch, tmp_path):
+    watchlist_path = tmp_path / "watchlist.json"
+    watchlist_path.write_text(json.dumps(_base_watchlist()), encoding="utf-8")
+    monkeypatch.setenv("WATCHLIST_PATH", str(watchlist_path))
+
+    with TestClient(app) as client:
+        ingest = FakeIngest()
+        app.state.ingest = ingest
+        payload = _base_watchlist()
+        payload["symbols"].append(
+            {
+                "symbol": "ethusdt",
+                "enabled": True,
+                "entry_tfs": ["15m", "1h"],
+                "setups": {"continuation": True, "retest": True, "fakeout": True, "setup_candle": True},
+                "levels": {
+                    "auto": True,
+                    "max_levels": 12,
+                    "cluster_tol_pct": 0.003,
+                    "overrides": {"add": [], "disable": []},
+                },
+            }
+        )
+        payload["symbols"].append(
+            {
+                "symbol": "solusdt",
+                "enabled": False,
+                "entry_tfs": ["15m", "1h"],
+                "setups": {"continuation": True, "retest": True, "fakeout": True, "setup_candle": True},
+                "levels": {
+                    "auto": True,
+                    "max_levels": 12,
+                    "cluster_tol_pct": 0.003,
+                    "overrides": {"add": [], "disable": []},
+                },
+            }
+        )
+        resp = client.put("/api/watchlist", json=payload)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ingest_sync"]["streaming"] == ["BTCUSDT", "ETHUSDT"]
+        assert ingest.calls == [["BTCUSDT", "ETHUSDT"]]
