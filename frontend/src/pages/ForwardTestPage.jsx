@@ -83,7 +83,7 @@ export default function ForwardTestPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       refreshAll();
-    }, 15000);
+    }, 60000);
     return () => clearInterval(timer);
   }, [tradesLimit, tradesOffset, tradesFilters.symbol, tradesFilters.tf, tradesFilters.direction]);
 
