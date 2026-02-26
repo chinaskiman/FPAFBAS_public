@@ -257,7 +257,11 @@ def cluster_points(points: List[dict], tol_pct: float) -> List[dict]:
     clusters: List[dict] = []
     members_by_cluster: Dict[int, List[dict]] = {}
     for label, (_, point) in zip(labels, valid):
-        if label is None or label == -1:
+        if label is None:
+            continue
+        if label == -1:
+            # Keep isolated valid pivots as singleton levels instead of dropping them.
+            clusters.append(_cluster_from_members([point]))
             continue
         members_by_cluster.setdefault(label, []).append(point)
 
