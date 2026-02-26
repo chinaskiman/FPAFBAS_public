@@ -1,0 +1,122 @@
+{
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "enabled": true,
+      "entry_tfs": [
+        "15m",
+        "1h"
+      ],
+      "setups": {
+        "continuation": true,
+        "retest": true,
+        "fakeout": true,
+        "setup_candle": true
+      },
+      "levels": {
+        "auto": true,
+        "max_levels": 12,
+        "cluster_tol_pct": 0.003,
+        "overrides": {
+          "add": [],
+          "disable": []
+        }
+      }
+    },
+    {
+      "symbol": "ETHUSDT",
+      "enabled": true,
+      "entry_tfs": [
+        "15m",
+        "1h"
+      ],
+      "setups": {
+        "continuation": true,
+        "retest": true,
+        "fakeout": true,
+        "setup_candle": true
+      },
+      "levels": {
+        "auto": true,
+        "max_levels": 12,
+        "cluster_tol_pct": 0.003,
+        "overrides": {
+          "add": [],
+          "disable": []
+        }
+      }
+    },
+    {
+      "symbol": "SOLUSDT",
+      "enabled": true,
+      "entry_tfs": [
+        "15m",
+        "1h"
+      ],
+      "setups": {
+        "continuation": true,
+        "retest": true,
+        "fakeout": true,
+        "setup_candle": true
+      },
+      "levels": {
+        "auto": true,
+        "max_levels": 12,
+        "cluster_tol_pct": 0.003,
+        "overrides": {
+          "add": [],
+          "disable": []
+        }
+      }
+    },
+    {
+      "symbol": "HYPEUSDT",
+      "enabled": true,
+      "entry_tfs": [
+        "15m",
+        "1h"
+      ],
+      "setups": {
+        "continuation": true,
+        "retest": true,
+        "fakeout": true,
+        "setup_candle": true
+      },
+      "levels": {
+        "auto": true,
+        "max_levels": 12,
+        "cluster_tol_pct": 0.003,
+        "overrides": {
+          "add": [],
+          "disable": []
+        }
+      }
+    }
+  ],
+  "global": {
+    "max_alerts_per_symbol_per_day": 6,
+    "cooldown_minutes": 60
+  },
+  "quality": {
+    "cooldown_minutes_by_type": {
+      "break": 60,
+      "setup": 45,
+      "fakeout": 60
+    },
+    "min_score_by_type": {
+      "break": 60,
+      "setup": 55,
+      "fakeout": 55
+    },
+    "max_alerts_per_symbol_per_hour": 6,
+    "max_alerts_global_per_hour": 30,
+    "quiet_hours": {
+      "enabled": false,
+      "start": "23:00",
+      "end": "07:00",
+      "tz": "Europe/Paris"
+    },
+    "di_peak_window_for_quality": 20,
+    "di_peak_ratio_threshold": 0.98
+  }
+}

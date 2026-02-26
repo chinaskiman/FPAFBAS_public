@@ -1,0 +1,9 @@
+.env
+backend/.env
+frontend/node_modules/
+frontend/dist/
+backend/.venv/
+.pytest_cache/
+backend/.pytest_cache/
+data/*.db
+data/poller.lock
