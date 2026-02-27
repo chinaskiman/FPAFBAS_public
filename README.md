@@ -73,6 +73,13 @@ Common settings:
 - `TELEGRAM_ENABLED` (`true|false`, default: auto-enabled if token+chat_id present)
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
+- `TELEGRAM_TIMEOUT_SECONDS` (default: `10`)
+- `TELEGRAM_MAX_RETRIES` (default: `2`, transient HTTP/network errors)
+- `TELEGRAM_RETRY_BASE_SECONDS` (default: `1`, exponential backoff base)
+- `TELEGRAM_RETRY_MAX_SECONDS` (default: `30`, backoff cap)
+- `TELEGRAM_PARSE_MODE` (optional: `MarkdownV2` or `HTML`)
+- `TELEGRAM_DISABLE_WEB_PAGE_PREVIEW` (`true|false`, default: `true`)
+- `TELEGRAM_MESSAGE_THREAD_ID` (optional, for forum-topic messages)
 - `ADMIN_TOKEN` (required for operator endpoints)
 - `CORS_ORIGINS` (comma-separated, default: `http://localhost:5173`)
 

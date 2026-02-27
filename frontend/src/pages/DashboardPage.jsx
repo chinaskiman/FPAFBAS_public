@@ -3500,44 +3500,93 @@ function formatTelegramText(alert) {
     return "";
   }
   const payload = alert.payload || {};
-  const type = (alert.type || payload.type || "").toUpperCase();
-  const symbol = alert.symbol || payload.symbol || "";
-  const tf = alert.tf || payload.tf || "";
-  const direction = alert.direction || payload.direction || "";
-  const level = alert.level ?? payload.level;
-  const entry = alert.entry ?? payload.entry;
-  const sl = alert.sl ?? payload.sl;
-  const slReason = alert.sl_reason ?? payload.sl_reason;
-  const time = alert.time ?? payload.time;
-  const hwc = alert.hwc_bias ?? payload.hwc_bias;
   const context = payload.context || alert.context || {};
+  const type = String(alert.type || payload.type || "-").toUpperCase();
+  const symbol = String(alert.symbol || payload.symbol || "-");
+  const tf = String(alert.tf || payload.tf || "-");
+  const direction = String(alert.direction || payload.direction || "-").toLowerCase();
+  const directionTag = direction === "long" || direction === "short" ? direction.toUpperCase() : "-";
+  const level = alert.level ?? payload.level;
+  const entry = toFiniteNumber(alert.entry ?? payload.entry);
+  const sl = toFiniteNumber(alert.sl ?? payload.sl);
+  const slReason = String(alert.sl_reason ?? payload.sl_reason ?? "-");
+  const time = alert.time ?? payload.time;
+  const weeklyBias = String(context.weekly_bias ?? alert.weekly_bias ?? payload.weekly_bias ?? "-");
+  const dailyBias = String(context.daily_bias ?? alert.daily_bias ?? payload.daily_bias ?? "-");
+  const hwcBias = String(context.hwc_bias ?? alert.hwc_bias ?? payload.hwc_bias ?? "-");
+
+  const volOk = context.vol_ma5_slope_ok;
+  const pullbackVol = context.pullback_vol_decline;
+  const diOk =
+    direction === "long" ? context.not_at_peak_long : direction === "short" ? context.not_at_peak_short : null;
+  const rsiDistance = toFiniteNumber(context.rsi_distance);
+  const atrStopDistance = toFiniteNumber(context.atr_stop_distance);
+
+  const risk = entry !== null && sl !== null ? Math.abs(entry - sl) : null;
+  const riskPct = risk !== null && entry !== null && entry !== 0 ? risk / Math.abs(entry) : null;
+  let rr2 = null;
+  if (entry !== null && risk !== null) {
+    if (direction === "long") {
+      rr2 = entry + risk * 2;
+    } else if (direction === "short") {
+      rr2 = entry - risk * 2;
+    }
+  }
 
   const parts = [];
-  parts.push(`[${type}] ${symbol} ${tf} ${direction}`);
+  parts.push(`${type} ${directionTag} | ${symbol} ${tf}`);
+  parts.push(`Time: ${formatTelegramTime(time)}`);
   if (level !== undefined && level !== null) {
-    parts.push(`Level: ${level}`);
+    parts.push(`Level: ${formatNumber(level)}`);
   }
-  parts.push(`Entry: ${entry}  SL: ${sl} (${slReason})`);
-  if (time) {
-    parts.push(`Time: ${time}`);
+  parts.push(`Entry: ${formatNumber(entry)} | SL: ${formatNumber(sl)} | SL reason: ${slReason}`);
+  if (risk !== null) {
+    parts.push(`Risk (1R): ${formatNumber(risk)} (${formatPercentFraction(riskPct)}) | TP@2R: ${formatNumber(rr2)}`);
+  } else {
+    parts.push("Risk (1R): - | TP@2R: -");
   }
-  if (hwc) {
-    parts.push(`HWC: ${hwc}`);
+  parts.push(`Bias: W ${weeklyBias} | D ${dailyBias} | HWC ${hwcBias}`);
+  parts.push(
+    `Checks: VOL_OK=${formatTelegramBool(volOk)} | DI_OK=${formatTelegramBool(diOk)} | PULLBACK_VOL=${formatTelegramBool(pullbackVol)}`
+  );
+  const indicators = [];
+  if (rsiDistance !== null) {
+    indicators.push(`RSI distance: ${formatNumber(rsiDistance)}`);
   }
-  const badges = [];
-  if (context.vol_ma5_slope_ok) {
-    badges.push("VOL_OK");
+  if (atrStopDistance !== null) {
+    indicators.push(`ATR stop distance: ${formatNumber(atrStopDistance)}`);
   }
-  if (direction === "long" && context.not_at_peak_long) {
-    badges.push("DI_OK");
-  }
-  if (direction === "short" && context.not_at_peak_short) {
-    badges.push("DI_OK");
-  }
-  if (badges.length) {
-    parts.push(badges.join(" "));
+  if (indicators.length > 0) {
+    parts.push(`Indicators: ${indicators.join(" | ")}`);
   }
   return parts.join("\n");
+}
+
+function formatTelegramBool(value) {
+  if (value === true) {
+    return "yes";
+  }
+  if (value === false) {
+    return "no";
+  }
+  return "-";
+}
+
+function formatPercentFraction(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return "-";
+  }
+  return `${(num * 100).toFixed(2)}%`;
+}
+
+function formatTelegramTime(value) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) {
+    return "-";
+  }
+  const iso = new Date(ms).toISOString().replace("T", " ").replace(".000Z", " UTC");
+  return `${iso} (${Math.trunc(ms)})`;
 }
 
 function getBinanceLink(symbol) {
