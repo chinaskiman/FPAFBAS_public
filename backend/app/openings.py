@@ -26,12 +26,16 @@ def build_openings(ingest, config, symbol: str, tf: str, limit: int = 300) -> di
     daily = daily_cache.list_all() if daily_cache else []
     hwc = compute_hwc_bias(weekly, daily)
     hwc_bias = hwc["hwc_bias"]
+    weekly_bias = hwc.get("weekly", {}).get("bias")
+    daily_bias = hwc.get("daily", {}).get("bias")
 
     if not candles:
         return {
             "symbol": symbol_upper,
             "tf": tf,
             "hwc_bias": hwc_bias,
+            "weekly_bias": weekly_bias,
+            "daily_bias": daily_bias,
             "last_candle_time": None,
             "signals": [],
         }
@@ -73,6 +77,9 @@ def build_openings(ingest, config, symbol: str, tf: str, limit: int = 300) -> di
         "rsi_distance": rsi_distance,
         "atr_mult": atr_mult,
         "atr_stop_distance": atr_stop_distance,
+        "hwc_bias": hwc_bias,
+        "weekly_bias": weekly_bias,
+        "daily_bias": daily_bias,
     }
 
     symbol_config = next(
@@ -99,17 +106,6 @@ def build_openings(ingest, config, symbol: str, tf: str, limit: int = 300) -> di
     events = detect_level_events(candles, final_levels)
     setup_items = detect_setup_candles(candles, sma7, events, sl_buffer_pct=0.0015)
 
-    if hwc_bias == "neutral":
-        return {
-            "symbol": symbol_upper,
-            "tf": tf,
-            "hwc_bias": hwc_bias,
-            "last_candle_time": last_candle_time,
-            "signals": [],
-        }
-
-    allowed_direction = "long" if hwc_bias == "bullish" else "short"
-
     signals: List[dict] = []
     break_levels = set()
     for event in events:
@@ -121,8 +117,6 @@ def build_openings(ingest, config, symbol: str, tf: str, limit: int = 300) -> di
         elif event.get("direction") == "down":
             direction = "short"
         else:
-            continue
-        if direction != allowed_direction:
             continue
         if not vol_metrics["vol_ma5_slope_ok"]:
             continue
@@ -157,8 +151,6 @@ def build_openings(ingest, config, symbol: str, tf: str, limit: int = 300) -> di
 
     for item in setup_items:
         if item.get("time") != last_candle_time:
-            continue
-        if item.get("direction") != allowed_direction:
             continue
         if item.get("level") in break_levels:
             continue
@@ -195,8 +187,6 @@ def build_openings(ingest, config, symbol: str, tf: str, limit: int = 300) -> di
             direction = "long"
         else:
             continue
-        if direction != allowed_direction:
-            continue
         idx = last_fakeout.get("index")
         if idx is None or idx >= len(candles):
             continue
@@ -228,6 +218,8 @@ def build_openings(ingest, config, symbol: str, tf: str, limit: int = 300) -> di
         "symbol": symbol_upper,
         "tf": tf,
         "hwc_bias": hwc_bias,
+        "weekly_bias": weekly_bias,
+        "daily_bias": daily_bias,
         "last_candle_time": last_candle_time,
         "signals": signals,
     }

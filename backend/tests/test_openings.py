@@ -96,33 +96,39 @@ def _watchlist(tmp_path: Path, level: float) -> dict:
     return watchlist
 
 
-def test_hwc_neutral_suppresses(monkeypatch, tmp_path) -> None:
+def test_hwc_neutral_is_recorded_not_used_as_gate(monkeypatch, tmp_path) -> None:
     level = 100.0
     watchlist = _watchlist(tmp_path, level)
     monkeypatch.setenv("WATCHLIST_PATH", str(tmp_path / "watchlist.json"))
 
     tf_cache = CandleCache(maxlen=2000)
-    tf_cache.extend(
-        [
-            _make_candle(0, 98, 99, 97, volume=1),
-            _make_candle(1, 101, 102, 100, volume=2),
-        ]
-    )
+    volumes = [1, 1, 1, 1, 1, 2, 2, 2, 2, 2]
+    closes = [95, 96, 97, 98, 99, 99, 99, 99, 99, 101]
+    for idx, close in enumerate(closes):
+        tf_cache.append(_make_candle(idx, close, high=close + 1, low=close - 1, volume=volumes[idx]))
     neutral_cache = CandleCache(maxlen=2000)
     ingest = FakeIngest(tf_cache, neutral_cache, neutral_cache)
     ingest.set_indicators(
         {
             "candles": [],
-            "rsi14": [60.0, 60.0],
-            "atr5": [2.0, 2.0],
-            "di_plus": [10.0, 9.0],
-            "di_minus": [5.0, 6.0],
-            "sma7": [None, None],
+            "rsi14": [60.0] * len(closes),
+            "atr5": [2.0] * len(closes),
+            "di_plus": list(range(30, 30 - len(closes), -1)),
+            "di_minus": [10.0] * len(closes),
+            "sma7": [None] * len(closes),
         }
     )
     config = WatchlistConfig.model_validate(watchlist)
     result = build_openings(ingest, config, "BTCUSDT", "15m", limit=10)
-    assert result["signals"] == []
+    assert result["hwc_bias"] == "neutral"
+    assert result["weekly_bias"] == "neutral"
+    assert result["daily_bias"] == "neutral"
+    assert any(signal["type"] == "break" for signal in result["signals"])
+    for signal in result["signals"]:
+        ctx = signal.get("context") or {}
+        assert ctx.get("hwc_bias") == "neutral"
+        assert ctx.get("weekly_bias") == "neutral"
+        assert ctx.get("daily_bias") == "neutral"
 
 
 def test_break_signal_strong_momentum(monkeypatch, tmp_path) -> None:
@@ -156,6 +162,9 @@ def test_break_signal_strong_momentum(monkeypatch, tmp_path) -> None:
     assert signal["sl_reason"] == "atr_stop"
     assert signal["candle"]["close"] == signal["entry"]
     assert signal["level_event"]["break_index"] is not None
+    assert signal["context"]["hwc_bias"] == "bullish"
+    assert signal["context"]["weekly_bias"] == "bullish"
+    assert signal["context"]["daily_bias"] == "bullish"
 
 
 def test_break_suppressed_when_no_momentum(monkeypatch, tmp_path) -> None:

@@ -116,6 +116,13 @@ def replay_run(
             atr_mult = mult["clamped"]
         atr_stop_distance = atr_last * atr_mult if atr_last is not None and atr_mult is not None else None
 
+        weekly = candles_by_tf.get("1w", [])
+        daily = candles_by_tf.get("1d", [])
+        hwc = compute_hwc_bias(weekly, daily)
+        hwc_bias = hwc["hwc_bias"]
+        weekly_bias = hwc.get("weekly", {}).get("bias")
+        daily_bias = hwc.get("daily", {}).get("bias")
+
         context = {
             "vol_ma5_slope_ok": vol_metrics["vol_ma5_slope_ok"],
             "pullback_vol_decline": pullback_decline,
@@ -124,18 +131,15 @@ def replay_run(
             "rsi_distance": rsi_distance,
             "atr_mult": atr_mult,
             "atr_stop_distance": atr_stop_distance,
+            "hwc_bias": hwc_bias,
+            "weekly_bias": weekly_bias,
+            "daily_bias": daily_bias,
         }
-
-        weekly = candles_by_tf.get("1w", [])
-        daily = candles_by_tf.get("1d", [])
-        hwc = compute_hwc_bias(weekly, daily)
-        hwc_bias = hwc["hwc_bias"]
 
         signals = _build_openings_from_window(
             window,
             events,
             setup_items,
-            hwc_bias,
             context,
             atr_stop_distance,
         )
@@ -156,6 +160,8 @@ def replay_run(
             "setup_candles": setup_items,
             "signals": signals,
             "hwc_bias": hwc_bias,
+            "weekly_bias": weekly_bias,
+            "daily_bias": daily_bias,
             "filters": {
                 "vol_ok": vol_metrics["vol_ma5_slope_ok"],
                 "di_ok": not_at_peak_long and not_at_peak_short,
@@ -224,14 +230,12 @@ def _build_openings_from_window(
     candles: List[Candle],
     events: List[dict],
     setup_items: List[dict],
-    hwc_bias: str,
     context: dict,
     atr_stop_distance: Optional[float],
 ) -> List[dict]:
     last_candle_time = candles[-1].close_time if candles else None
-    if not candles or hwc_bias == "neutral":
+    if not candles:
         return []
-    allowed_direction = "long" if hwc_bias == "bullish" else "short"
 
     signals: List[dict] = []
     break_levels = set()
@@ -244,8 +248,6 @@ def _build_openings_from_window(
         elif event.get("direction") == "down":
             direction = "short"
         else:
-            continue
-        if direction != allowed_direction:
             continue
         if not context.get("vol_ma5_slope_ok"):
             continue
@@ -284,8 +286,6 @@ def _build_openings_from_window(
     for item in setup_items:
         if item.get("time") != last_candle_time:
             continue
-        if item.get("direction") != allowed_direction:
-            continue
         if item.get("level") in break_levels:
             continue
         setup_index = item.get("setup_index")
@@ -323,8 +323,6 @@ def _build_openings_from_window(
         elif break_direction == "down":
             direction = "long"
         else:
-            continue
-        if direction != allowed_direction:
             continue
         idx = last_fakeout.get("index")
         if idx is None or idx >= len(candles):
