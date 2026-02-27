@@ -1786,6 +1786,8 @@ export default function DashboardPage({ view = "dashboard" }) {
                     <th>Signal Time</th>
                     <th>Type</th>
                     <th>Direction</th>
+                    <th>Entry</th>
+                    <th>SL</th>
                     <th>Biases (W / D / H)</th>
                     <th>Alignment</th>
                     <th>Outcome</th>
@@ -1801,7 +1803,7 @@ export default function DashboardPage({ view = "dashboard" }) {
                 <tbody>
                   {replayTradeRows.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="muted">
+                      <td colSpan={15} className="muted">
                         No replay trades match filters.
                       </td>
                     </tr>
@@ -1811,6 +1813,8 @@ export default function DashboardPage({ view = "dashboard" }) {
                         <td>{formatTimestamp(trade.signal_time)}</td>
                         <td>{trade.type}</td>
                         <td>{trade.direction}</td>
+                        <td>{formatNumber(trade.entry)}</td>
+                        <td>{formatNumber(trade.sl)}</td>
                         <td>
                           {trade.weekly_bias} / {trade.daily_bias} / {trade.hwc_bias}
                         </td>
@@ -3188,12 +3192,14 @@ function evaluateReplaySignalOutcome(signal, candles) {
 
   let maxRr = 0;
   let maxDrawdownR = 0;
-  let slTime = null;
-  let rr2Time = null;
+  let outcome = "open";
+  let outcomeTime = null;
+  let outcomeCandleIndex = -1;
   let rr5Time = null;
   let rr10Time = null;
 
-  for (const candle of candles) {
+  for (let idx = 0; idx < candles.length; idx += 1) {
+    const candle = candles[idx];
     if (!candle || candle.time <= signalTime) {
       continue;
     }
@@ -3204,54 +3210,126 @@ function evaluateReplaySignalOutcome(signal, candles) {
     }
 
     if (direction === "long") {
-      maxRr = Math.max(maxRr, (high - entry) / risk);
-      maxDrawdownR = Math.max(maxDrawdownR, (entry - low) / risk);
-      if (slTime === null && low <= sl) {
-        slTime = candle.time;
+      const favorableR = Math.max(0, (high - entry) / risk);
+      const adverseR = Math.max(0, (entry - low) / risk);
+      const slHit = low <= sl;
+      const rr2Hit = high >= rr2Target;
+      if (slHit && rr2Hit) {
+        outcome = "loss";
+        outcomeTime = candle.time;
+        outcomeCandleIndex = idx;
+        maxDrawdownR = Math.max(maxDrawdownR, 1);
+        break;
       }
-      if (rr2Time === null && high >= rr2Target) {
-        rr2Time = candle.time;
+      if (slHit) {
+        outcome = "loss";
+        outcomeTime = candle.time;
+        outcomeCandleIndex = idx;
+        maxDrawdownR = Math.max(maxDrawdownR, 1);
+        break;
       }
-      if (rr5Time === null && high >= rr5Target) {
+      if (rr2Hit) {
+        outcome = "win";
+        outcomeTime = candle.time;
+        outcomeCandleIndex = idx;
+        maxRr = Math.max(maxRr, 2);
+        maxDrawdownR = Math.max(maxDrawdownR, Math.min(1, adverseR));
         rr5Time = candle.time;
-      }
-      if (rr10Time === null && high >= rr10Target) {
         rr10Time = candle.time;
+        if (high < rr5Target) {
+          rr5Time = null;
+        }
+        if (high < rr10Target) {
+          rr10Time = null;
+        }
+        break;
       }
+      maxRr = Math.max(maxRr, favorableR);
+      maxDrawdownR = Math.max(maxDrawdownR, adverseR);
     } else if (direction === "short") {
-      maxRr = Math.max(maxRr, (entry - low) / risk);
-      maxDrawdownR = Math.max(maxDrawdownR, (high - entry) / risk);
-      if (slTime === null && high >= sl) {
-        slTime = candle.time;
+      const favorableR = Math.max(0, (entry - low) / risk);
+      const adverseR = Math.max(0, (high - entry) / risk);
+      const slHit = high >= sl;
+      const rr2Hit = low <= rr2Target;
+      if (slHit && rr2Hit) {
+        outcome = "loss";
+        outcomeTime = candle.time;
+        outcomeCandleIndex = idx;
+        maxDrawdownR = Math.max(maxDrawdownR, 1);
+        break;
       }
-      if (rr2Time === null && low <= rr2Target) {
-        rr2Time = candle.time;
+      if (slHit) {
+        outcome = "loss";
+        outcomeTime = candle.time;
+        outcomeCandleIndex = idx;
+        maxDrawdownR = Math.max(maxDrawdownR, 1);
+        break;
       }
-      if (rr5Time === null && low <= rr5Target) {
+      if (rr2Hit) {
+        outcome = "win";
+        outcomeTime = candle.time;
+        outcomeCandleIndex = idx;
+        maxRr = Math.max(maxRr, 2);
+        maxDrawdownR = Math.max(maxDrawdownR, Math.min(1, adverseR));
         rr5Time = candle.time;
-      }
-      if (rr10Time === null && low <= rr10Target) {
         rr10Time = candle.time;
+        if (low > rr5Target) {
+          rr5Time = null;
+        }
+        if (low > rr10Target) {
+          rr10Time = null;
+        }
+        break;
+      }
+      maxRr = Math.max(maxRr, favorableR);
+      maxDrawdownR = Math.max(maxDrawdownR, adverseR);
+    } else {
+      return null;
+    }
+  }
+
+  if (outcome === "win" && outcomeCandleIndex >= 0) {
+    for (let idx = outcomeCandleIndex; idx < candles.length; idx += 1) {
+      const candle = candles[idx];
+      if (!candle || candle.time < outcomeTime) {
+        continue;
+      }
+      const high = toFiniteNumber(candle.high);
+      const low = toFiniteNumber(candle.low);
+      if (high === null || low === null) {
+        continue;
+      }
+      if (direction === "long") {
+        maxRr = Math.max(maxRr, Math.max(0, (high - entry) / risk));
+        if (rr5Time === null && high >= rr5Target) {
+          rr5Time = candle.time;
+        }
+        if (rr10Time === null && high >= rr10Target) {
+          rr10Time = candle.time;
+        }
+      } else {
+        maxRr = Math.max(maxRr, Math.max(0, (entry - low) / risk));
+        if (rr5Time === null && low <= rr5Target) {
+          rr5Time = candle.time;
+        }
+        if (rr10Time === null && low <= rr10Target) {
+          rr10Time = candle.time;
+        }
       }
     }
+  } else {
+    rr5Time = null;
+    rr10Time = null;
   }
 
   maxRr = Math.max(0, maxRr);
   maxDrawdownR = Math.max(0, maxDrawdownR);
 
-  let outcome = "open";
-  let outcomeTime = null;
-  if (rr2Time !== null && (slTime === null || rr2Time < slTime)) {
-    outcome = "win";
-    outcomeTime = rr2Time;
-  } else if (slTime !== null && (rr2Time === null || slTime <= rr2Time)) {
-    outcome = "loss";
-    outcomeTime = slTime;
-  }
+  const slTime = outcome === "loss" ? outcomeTime : null;
+  const rr2Time = outcome === "win" ? outcomeTime : null;
 
   const toDuration = (hitTime) => (hitTime === null ? null : Math.max(0, hitTime - signalTime));
-  const outcomeDuration =
-    outcome === "win" ? toDuration(rr2Time) : outcome === "loss" ? toDuration(slTime) : null;
+  const outcomeDuration = outcomeTime === null ? null : toDuration(outcomeTime);
 
   return {
     outcome,
