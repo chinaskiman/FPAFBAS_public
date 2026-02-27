@@ -661,19 +661,20 @@ export default function DashboardPage({ view = "dashboard" }) {
     }
 
     const levels = isReplayMode ? buildReplayLevels(replayItemLocal) : chartLevels;
+    const displayLevels = filterLevelsForChart(levels, candles);
     const timeRange = getTimeRange(candles);
     if (showZones) {
-      levels.forEach((level) => {
+      displayLevels.forEach((level) => {
         if (!timeRange) {
           return;
         }
         const role = level.role ?? "mixed";
         const color =
           role === "support"
-            ? "rgba(15, 107, 92, 0.3)"
+            ? "rgba(15, 107, 92, 0.12)"
             : role === "resistance"
-              ? "rgba(122, 47, 47, 0.3)"
-              : "rgba(122, 106, 69, 0.3)";
+              ? "rgba(122, 47, 47, 0.12)"
+              : "rgba(122, 106, 69, 0.08)";
         const zoneSeries = refs.main.addAreaSeries({
           topColor: color,
           bottomColor: color,
@@ -3370,6 +3371,106 @@ function buildReplayLevels(item) {
       strength: 0
     };
   });
+}
+
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function filterLevelsForChart(levels, candles, maxLevels = 8) {
+  if (!Array.isArray(levels) || levels.length === 0) {
+    return [];
+  }
+
+  const normalized = levels
+    .map((level) => {
+      const center = toFiniteNumber(level?.center);
+      if (center === null) {
+        return null;
+      }
+      const roleRaw = level?.role;
+      const role = roleRaw === "support" || roleRaw === "resistance" ? roleRaw : "mixed";
+      const defaultHalfWidth = Math.max(Math.abs(center) * 0.0015, 1);
+      let zoneLow = toFiniteNumber(level?.zone_low);
+      let zoneHigh = toFiniteNumber(level?.zone_high);
+      if (zoneLow === null) {
+        zoneLow = center - defaultHalfWidth;
+      }
+      if (zoneHigh === null) {
+        zoneHigh = center + defaultHalfWidth;
+      }
+      if (zoneHigh < zoneLow) {
+        const tmp = zoneLow;
+        zoneLow = zoneHigh;
+        zoneHigh = tmp;
+      }
+      return {
+        ...level,
+        center,
+        role,
+        zone_low: zoneLow,
+        zone_high: zoneHigh,
+        strength: toFiniteNumber(level?.strength) ?? 0
+      };
+    })
+    .filter(Boolean);
+
+  const candleList = Array.isArray(candles) ? candles : [];
+  const highs = candleList.map((item) => toFiniteNumber(item?.high)).filter((item) => item !== null);
+  const lows = candleList.map((item) => toFiniteNumber(item?.low)).filter((item) => item !== null);
+  const lastClose = toFiniteNumber(candleList[candleList.length - 1]?.close);
+
+  let candidates = normalized;
+  if (highs.length > 0 && lows.length > 0) {
+    const minLow = Math.min(...lows);
+    const maxHigh = Math.max(...highs);
+    const range = Math.max(maxHigh - minLow, Math.abs(lastClose ?? minLow) * 0.02, 1);
+    const bandLow = minLow - range * 0.6;
+    const bandHigh = maxHigh + range * 0.6;
+    const inBand = normalized.filter((level) => level.center >= bandLow && level.center <= bandHigh);
+    if (inBand.length > 0) {
+      candidates = inBand;
+    }
+  }
+
+  const anchor =
+    lastClose ??
+    (highs.length > 0 && lows.length > 0 ? (Math.min(...lows) + Math.max(...highs)) / 2 : normalized[0].center);
+
+  const sorted = [...candidates].sort((a, b) => {
+    const distA = Math.abs(a.center - anchor);
+    const distB = Math.abs(b.center - anchor);
+    if (distA !== distB) {
+      return distA - distB;
+    }
+    return (b.strength ?? 0) - (a.strength ?? 0);
+  });
+
+  if (sorted.length <= maxLevels) {
+    return sorted;
+  }
+
+  const caps = { support: 3, resistance: 3, mixed: 2 };
+  const used = { support: 0, resistance: 0, mixed: 0 };
+  const selected = [];
+
+  for (const level of sorted) {
+    const roleKey = level.role ?? "mixed";
+    if (used[roleKey] >= caps[roleKey]) {
+      continue;
+    }
+    selected.push(level);
+    used[roleKey] += 1;
+    if (selected.length >= maxLevels) {
+      break;
+    }
+  }
+
+  if (selected.length > 0) {
+    return selected;
+  }
+  return sorted.slice(0, maxLevels);
 }
 
 function buildReplayMarkers(signals) {
