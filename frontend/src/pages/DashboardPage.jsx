@@ -33,7 +33,10 @@ export default function DashboardPage({ view = "dashboard" }) {
   const [alertDetailsError, setAlertDetailsError] = useState("");
   const [watchlist, setWatchlist] = useState(null);
   const [watchlistFormSymbol, setWatchlistFormSymbol] = useState("");
+  const [watchlistBulkSymbols, setWatchlistBulkSymbols] = useState("");
   const [watchlistFormTfs, setWatchlistFormTfs] = useState(["15m", "1h", "4h"]);
+  const [watchlistFilter, setWatchlistFilter] = useState("");
+  const [watchlistSelectedSymbols, setWatchlistSelectedSymbols] = useState([]);
   const [watchlistFormError, setWatchlistFormError] = useState("");
   const [watchlistSaveStatus, setWatchlistSaveStatus] = useState("");
   const [indicators, setIndicators] = useState(null);
@@ -122,6 +125,19 @@ export default function DashboardPage({ view = "dashboard" }) {
 
   const watchlistTfOptions = ["15m", "1h", "4h", "1d"];
   const watchlistDefaultTfs = ["15m", "1h", "4h"];
+  const watchlistItems = useMemo(() => {
+    if (!Array.isArray(watchlist?.symbols)) {
+      return [];
+    }
+    return watchlist.symbols;
+  }, [watchlist]);
+  const filteredWatchlistItems = useMemo(() => {
+    const needle = watchlistFilter.trim().toUpperCase();
+    if (!needle) {
+      return watchlistItems;
+    }
+    return watchlistItems.filter((item) => String(item?.symbol || "").toUpperCase().includes(needle));
+  }, [watchlistItems, watchlistFilter]);
   const chartContainerRef = useRef(null);
   const volumeContainerRef = useRef(null);
   const chartAbortRef = useRef(null);
@@ -162,6 +178,11 @@ export default function DashboardPage({ view = "dashboard" }) {
     };
     load();
   }, []);
+
+  useEffect(() => {
+    const valid = new Set(watchlistItems.map((item) => item.symbol));
+    setWatchlistSelectedSymbols((prev) => prev.filter((symbol) => valid.has(symbol)));
+  }, [watchlistItems]);
 
   useEffect(() => {
     if (!chartContainerRef.current || !volumeContainerRef.current) {
@@ -828,16 +849,9 @@ export default function DashboardPage({ view = "dashboard" }) {
     setWatchlistFormError("");
     setWatchlistSaveStatus("");
     const symbol = watchlistFormSymbol.trim().toUpperCase();
-    if (!symbol) {
-      setWatchlistFormError("Symbol is required.");
-      return;
-    }
-    if (symbol.length < 6 || symbol.length > 20) {
-      setWatchlistFormError("Symbol must be 6-20 characters.");
-      return;
-    }
-    if (!/^[A-Z0-9]+$/.test(symbol)) {
-      setWatchlistFormError("Symbol must be A-Z or 0-9.");
+    const validationError = validateWatchlistSymbol(symbol);
+    if (validationError) {
+      setWatchlistFormError(validationError);
       return;
     }
     const validTfs = watchlistFormTfs.filter((tf) => watchlistTfOptions.includes(tf));
@@ -854,26 +868,70 @@ export default function DashboardPage({ view = "dashboard" }) {
       return;
     }
     const updated = structuredClone(watchlist);
-    const template = updated.symbols?.[0];
-    const setups = template?.setups
-      ? structuredClone(template.setups)
-      : { continuation: true, retest: true, fakeout: true, setup_candle: true };
-    const levels = template?.levels
-      ? structuredClone(template.levels)
-      : { auto: true, max_levels: 12, cluster_tol_pct: 0.003, overrides: { add: [], disable: [] } };
-    levels.overrides = { add: [], disable: [] };
-    const newEntry = {
-      symbol,
-      enabled: true,
-      entry_tfs: validTfs,
-      setups,
-      levels
-    };
-    updated.symbols = [...(updated.symbols ?? []), newEntry];
+    updated.symbols = [...(updated.symbols ?? []), buildWatchlistSymbolEntry(updated.symbols?.[0], symbol, validTfs)];
     try {
       await saveWatchlist(updated);
       setWatchlistFormSymbol("");
       setWatchlistFormTfs(watchlistDefaultTfs);
+      setWatchlistSaveStatus(`Added ${symbol}.`);
+    } catch (err) {
+      setWatchlistFormError(err instanceof Error ? err.message : "Failed to save watchlist.");
+    }
+  };
+
+  const handleAddWatchlistSymbolsBulk = async () => {
+    if (!watchlist) {
+      return;
+    }
+    setWatchlistFormError("");
+    setWatchlistSaveStatus("");
+    const validTfs = watchlistFormTfs.filter((tf) => watchlistTfOptions.includes(tf));
+    if (validTfs.length === 0) {
+      setWatchlistFormError("Select at least one timeframe.");
+      return;
+    }
+    const parsed = parseWatchlistSymbolInput(watchlistBulkSymbols);
+    if (parsed.length === 0) {
+      setWatchlistFormError("Paste at least one symbol.");
+      return;
+    }
+
+    const existing = new Set((watchlist.symbols ?? []).map((item) => item.symbol));
+    const updated = structuredClone(watchlist);
+    const added = [];
+    const duplicates = [];
+    const invalid = [];
+    parsed.forEach((raw) => {
+      const symbol = raw.toUpperCase();
+      const errorMessage = validateWatchlistSymbol(symbol);
+      if (errorMessage) {
+        invalid.push(symbol);
+        return;
+      }
+      if (existing.has(symbol)) {
+        duplicates.push(symbol);
+        return;
+      }
+      updated.symbols = [
+        ...(updated.symbols ?? []),
+        buildWatchlistSymbolEntry(updated.symbols?.[0], symbol, validTfs)
+      ];
+      existing.add(symbol);
+      added.push(symbol);
+    });
+
+    if (added.length === 0) {
+      setWatchlistFormError("No symbols were added. Check duplicates/format.");
+      return;
+    }
+
+    try {
+      await saveWatchlist(updated);
+      setWatchlistBulkSymbols("");
+      const skipped = duplicates.length + invalid.length;
+      setWatchlistSaveStatus(
+        `Added ${added.length} symbol(s).${skipped > 0 ? ` Skipped ${skipped} (duplicates/invalid).` : ""}`
+      );
     } catch (err) {
       setWatchlistFormError(err instanceof Error ? err.message : "Failed to save watchlist.");
     }
@@ -893,6 +951,56 @@ export default function DashboardPage({ view = "dashboard" }) {
     }
     try {
       await saveWatchlist(updated);
+      setWatchlistSelectedSymbols((prev) => prev.filter((item) => item !== symbol));
+      setWatchlistSaveStatus(`Removed ${symbol}.`);
+    } catch (err) {
+      setWatchlistFormError(err instanceof Error ? err.message : "Failed to save watchlist.");
+    }
+  };
+
+  const handleToggleWatchlistSelection = (symbol) => {
+    setWatchlistSelectedSymbols((prev) => {
+      if (prev.includes(symbol)) {
+        return prev.filter((item) => item !== symbol);
+      }
+      return [...prev, symbol];
+    });
+  };
+
+  const handleSelectAllVisibleWatchlistSymbols = () => {
+    setWatchlistSelectedSymbols((prev) => {
+      const next = new Set(prev);
+      filteredWatchlistItems.forEach((item) => next.add(item.symbol));
+      return Array.from(next);
+    });
+  };
+
+  const handleClearWatchlistSelection = () => {
+    setWatchlistSelectedSymbols([]);
+  };
+
+  const handleRemoveSelectedWatchlistSymbols = async () => {
+    if (!watchlist || watchlistSelectedSymbols.length === 0) {
+      return;
+    }
+    setWatchlistFormError("");
+    setWatchlistSaveStatus("");
+    const selected = new Set(watchlistSelectedSymbols);
+    const currentCount = (watchlist.symbols ?? []).length;
+    const nextCount = currentCount - selected.size;
+    if (nextCount < 1) {
+      setWatchlistFormError("Watchlist must contain at least one symbol.");
+      return;
+    }
+    if (!window.confirm(`Remove ${selected.size} selected symbol(s)?`)) {
+      return;
+    }
+    const updated = structuredClone(watchlist);
+    updated.symbols = (updated.symbols ?? []).filter((item) => !selected.has(item.symbol));
+    try {
+      await saveWatchlist(updated);
+      setWatchlistSelectedSymbols([]);
+      setWatchlistSaveStatus(`Removed ${selected.size} symbol(s).`);
     } catch (err) {
       setWatchlistFormError(err instanceof Error ? err.message : "Failed to save watchlist.");
     }
@@ -1200,7 +1308,7 @@ export default function DashboardPage({ view = "dashboard" }) {
         {watchlistSaveStatus ? <div className="muted">{watchlistSaveStatus}</div> : null}
         <div className="di-controls">
           <label className="field">
-            <span>Symbol</span>
+            <span>Add One Symbol</span>
             <input
               type="text"
               value={watchlistFormSymbol}
@@ -1229,15 +1337,62 @@ export default function DashboardPage({ view = "dashboard" }) {
             </div>
           </div>
           <button className="btn" type="button" onClick={handleAddWatchlistSymbol}>
-            Add
+            Add One
+          </button>
+        </div>
+
+        <div className="di-controls">
+          <label className="field watchlist-bulk-field">
+            <span>Quick Add Symbols (comma / space / newline)</span>
+            <textarea
+              value={watchlistBulkSymbols}
+              onChange={(event) => setWatchlistBulkSymbols(event.target.value.toUpperCase())}
+              placeholder={"BTCUSDT ETHUSDT SOLUSDT\nor BTCUSDT,ETHUSDT,SOLUSDT"}
+              rows={3}
+            />
+          </label>
+          <button className="btn" type="button" onClick={handleAddWatchlistSymbolsBulk}>
+            Add Many
           </button>
         </div>
 
         {watchlist && Array.isArray(watchlist.symbols) ? (
+          <>
+            <div className="di-controls">
+              <label className="field">
+                <span>Find Symbol</span>
+                <input
+                  type="text"
+                  value={watchlistFilter}
+                  onChange={(event) => setWatchlistFilter(event.target.value.toUpperCase())}
+                  placeholder="e.g. BTC"
+                />
+              </label>
+              <div className="inline-form">
+                <button className="btn btn-small" type="button" onClick={handleSelectAllVisibleWatchlistSymbols}>
+                  Select Visible
+                </button>
+                <button className="btn btn-small" type="button" onClick={handleClearWatchlistSelection}>
+                  Clear Selection
+                </button>
+                <button
+                  className="btn btn-small"
+                  type="button"
+                  disabled={watchlistSelectedSymbols.length === 0}
+                  onClick={handleRemoveSelectedWatchlistSymbols}
+                >
+                  Remove Selected ({watchlistSelectedSymbols.length})
+                </button>
+              </div>
+            </div>
+            <p className="muted">
+              Showing {filteredWatchlistItems.length} of {watchlistItems.length} symbols.
+            </p>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th>Pick</th>
                   <th>Symbol</th>
                   <th>Entry TFs</th>
                   <th>Enabled</th>
@@ -1245,8 +1400,22 @@ export default function DashboardPage({ view = "dashboard" }) {
                 </tr>
               </thead>
               <tbody>
-                {watchlist.symbols.map((item) => (
+                {filteredWatchlistItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="muted">
+                      No symbols match the filter.
+                    </td>
+                  </tr>
+                ) : (
+                filteredWatchlistItems.map((item) => (
                   <tr key={`wl-${item.symbol}`}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={watchlistSelectedSymbols.includes(item.symbol)}
+                        onChange={() => handleToggleWatchlistSelection(item.symbol)}
+                      />
+                    </td>
                     <td>{item.symbol}</td>
                     <td>
                       <div className="inline-form inline-form-tight">
@@ -1288,10 +1457,12 @@ export default function DashboardPage({ view = "dashboard" }) {
                       </div>
                     </td>
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>
+          </>
         ) : (
           <p className="muted">Loading watchlist...</p>
         )}
@@ -4171,6 +4342,53 @@ function EditableList({ items, onRemove }) {
       ))}
     </ul>
   );
+}
+
+function parseWatchlistSymbolInput(input) {
+  if (!input) {
+    return [];
+  }
+  const unique = new Set();
+  return String(input)
+    .split(/[\s,;]+/)
+    .map((item) => item.trim().toUpperCase())
+    .filter((item) => {
+      if (!item || unique.has(item)) {
+        return false;
+      }
+      unique.add(item);
+      return true;
+    });
+}
+
+function validateWatchlistSymbol(symbol) {
+  if (!symbol) {
+    return "Symbol is required.";
+  }
+  if (symbol.length < 6 || symbol.length > 20) {
+    return "Symbol must be 6-20 characters.";
+  }
+  if (!/^[A-Z0-9]+$/.test(symbol)) {
+    return "Symbol must be A-Z or 0-9.";
+  }
+  return "";
+}
+
+function buildWatchlistSymbolEntry(template, symbol, entryTfs) {
+  const setups = template?.setups
+    ? structuredClone(template.setups)
+    : { continuation: true, retest: true, fakeout: true, setup_candle: true };
+  const levels = template?.levels
+    ? structuredClone(template.levels)
+    : { auto: true, max_levels: 12, cluster_tol_pct: 0.003, overrides: { add: [], disable: [] } };
+  levels.overrides = { add: [], disable: [] };
+  return {
+    symbol,
+    enabled: true,
+    entry_tfs: entryTfs,
+    setups,
+    levels
+  };
 }
 
 function updateOverrides(watchlist, symbol, key, value) {

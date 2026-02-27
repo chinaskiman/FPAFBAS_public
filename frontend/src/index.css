@@ -348,6 +348,19 @@ pre {
   font-family: inherit;
 }
 
+.field textarea {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-family: inherit;
+  resize: vertical;
+}
+
+.watchlist-bulk-field {
+  min-width: 320px;
+  flex: 1;
+}
+
 .bias-grid {
   display: grid;
   gap: 16px;
