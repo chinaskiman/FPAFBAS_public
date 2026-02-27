@@ -1777,6 +1777,14 @@ export default function DashboardPage({ view = "dashboard" }) {
                 <span>Short Win/Loss Ratio</span>
                 <strong>{formatWinLossRatio(replayTradeStats.by_side.short)}</strong>
               </div>
+              <div>
+                <span>Average Win RR</span>
+                <strong>{formatNumber(replayTradeStats.avg_win_rr)}</strong>
+              </div>
+              <div>
+                <span>Max Losing Streak</span>
+                <strong>{replayTradeStats.max_losing_streak}</strong>
+              </div>
             </div>
 
             <div className="table-wrap">
@@ -3424,6 +3432,7 @@ function summarizeReplayOutcomes(trades) {
   let wins = 0;
   let losses = 0;
   let open = 0;
+  let winsRrSum = 0;
 
   rows.forEach((trade) => {
     const side = trade.direction === "short" ? "short" : "long";
@@ -3431,6 +3440,7 @@ function summarizeReplayOutcomes(trades) {
     if (trade.outcome === "win") {
       wins += 1;
       bySide[side].wins += 1;
+      winsRrSum += Number(trade.max_rr ?? 0);
     } else if (trade.outcome === "loss") {
       losses += 1;
       bySide[side].losses += 1;
@@ -3446,10 +3456,18 @@ function summarizeReplayOutcomes(trades) {
   let cumulativeR = 0;
   let peakR = 0;
   let maxDrawdownR = 0;
+  let losingStreak = 0;
+  let maxLosingStreak = 0;
   resolved.forEach((trade) => {
     cumulativeR += Number(trade.realized_r ?? 0);
     peakR = Math.max(peakR, cumulativeR);
     maxDrawdownR = Math.max(maxDrawdownR, peakR - cumulativeR);
+    if (trade.outcome === "loss") {
+      losingStreak += 1;
+      maxLosingStreak = Math.max(maxLosingStreak, losingStreak);
+    } else if (trade.outcome === "win") {
+      losingStreak = 0;
+    }
   });
 
   return {
@@ -3457,6 +3475,8 @@ function summarizeReplayOutcomes(trades) {
     wins,
     losses,
     open,
+    avg_win_rr: wins > 0 ? winsRrSum / wins : 0,
+    max_losing_streak: maxLosingStreak,
     max_drawdown_r: maxDrawdownR,
     by_side: bySide,
   };
