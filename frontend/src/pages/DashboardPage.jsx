@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart } from "lightweight-charts";
 
 const EMPTY_HEALTH = { status: "loading" };
@@ -110,6 +110,10 @@ export default function DashboardPage({ view = "dashboard" }) {
   const [replayToMs, setReplayToMs] = useState("");
   const [replayIndex, setReplayIndex] = useState(0);
   const [replayDetails, setReplayDetails] = useState(null);
+  const [replaySideFilter, setReplaySideFilter] = useState("all");
+  const [replayBiasAlignmentFilter, setReplayBiasAlignmentFilter] = useState("all");
+  const [replayOutcomeFilter, setReplayOutcomeFilter] = useState("all");
+  const [replaySortBy, setReplaySortBy] = useState("time_desc");
   const [pollerStatus, setPollerStatus] = useState(null);
   const [pollerError, setPollerError] = useState("");
   const [telegramText, setTelegramText] = useState("");
@@ -1024,6 +1028,54 @@ export default function DashboardPage({ view = "dashboard" }) {
 
   const replayItems = Array.isArray(replayData?.items) ? replayData.items : [];
   const replayItem = replayItems[replayIndex];
+  const replayTradeOutcomes = useMemo(
+    () => buildReplayTradeOutcomes(replayItems, replayData?.symbol, replayData?.tf),
+    [replayItems, replayData?.symbol, replayData?.tf]
+  );
+  const replayTradeRows = useMemo(() => {
+    let rows = [...replayTradeOutcomes];
+    if (replaySideFilter !== "all") {
+      rows = rows.filter((item) => item.direction === replaySideFilter);
+    }
+    if (replayOutcomeFilter !== "all") {
+      rows = rows.filter((item) => item.outcome === replayOutcomeFilter);
+    }
+    if (replayBiasAlignmentFilter === "aligned_3") {
+      rows = rows.filter((item) => item.bias_alignment_count === 3);
+    } else if (replayBiasAlignmentFilter === "aligned_2") {
+      rows = rows.filter((item) => item.bias_alignment_count === 2);
+    } else if (replayBiasAlignmentFilter === "aligned_0_1") {
+      rows = rows.filter((item) => item.bias_alignment_count <= 1);
+    }
+
+    rows.sort((a, b) => {
+      if (replaySortBy === "time_asc") {
+        return a.signal_time - b.signal_time;
+      }
+      if (replaySortBy === "time_desc") {
+        return b.signal_time - a.signal_time;
+      }
+      if (replaySortBy === "max_rr_desc") {
+        return b.max_rr - a.max_rr;
+      }
+      if (replaySortBy === "max_dd_desc") {
+        return b.max_drawdown_r - a.max_drawdown_r;
+      }
+      if (replaySortBy === "duration_rr2_asc") {
+        return compareNullableNumber(a.time_to_rr2_ms, b.time_to_rr2_ms);
+      }
+      if (replaySortBy === "alignment_desc") {
+        return b.bias_alignment_count - a.bias_alignment_count || b.signal_time - a.signal_time;
+      }
+      if (replaySortBy === "direction") {
+        const rank = { long: 0, short: 1 };
+        return (rank[a.direction] ?? 9) - (rank[b.direction] ?? 9) || b.signal_time - a.signal_time;
+      }
+      return b.signal_time - a.signal_time;
+    });
+    return rows;
+  }, [replayTradeOutcomes, replaySideFilter, replayOutcomeFilter, replayBiasAlignmentFilter, replaySortBy]);
+  const replayTradeStats = useMemo(() => summarizeReplayOutcomes(replayTradeRows), [replayTradeRows]);
 
   const handleReplaySignalClick = (signal) => {
     setReplayDetails(signal);
@@ -1650,6 +1702,133 @@ export default function DashboardPage({ view = "dashboard" }) {
                 )}
               </tbody>
             </table>
+          </div>
+        ) : null}
+
+        {replayTradeOutcomes.length > 0 ? (
+          <div>
+            <h3>Replay Trade Outcomes</h3>
+            <div className="di-controls">
+              <label className="field">
+                <span>Side</span>
+                <select value={replaySideFilter} onChange={(event) => setReplaySideFilter(event.target.value)}>
+                  <option value="all">All</option>
+                  <option value="long">Long</option>
+                  <option value="short">Short</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Bias Alignment</span>
+                <select
+                  value={replayBiasAlignmentFilter}
+                  onChange={(event) => setReplayBiasAlignmentFilter(event.target.value)}
+                >
+                  <option value="all">All</option>
+                  <option value="aligned_3">3/3 aligned</option>
+                  <option value="aligned_2">2/3 aligned</option>
+                  <option value="aligned_0_1">0-1/3 aligned</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Outcome</span>
+                <select value={replayOutcomeFilter} onChange={(event) => setReplayOutcomeFilter(event.target.value)}>
+                  <option value="all">All</option>
+                  <option value="win">Win</option>
+                  <option value="loss">Loss</option>
+                  <option value="open">Open</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Sort</span>
+                <select value={replaySortBy} onChange={(event) => setReplaySortBy(event.target.value)}>
+                  <option value="time_desc">Newest first</option>
+                  <option value="time_asc">Oldest first</option>
+                  <option value="max_rr_desc">Max RR (high to low)</option>
+                  <option value="max_dd_desc">Max drawdown R (high to low)</option>
+                  <option value="duration_rr2_asc">Time to RR2 (fast to slow)</option>
+                  <option value="alignment_desc">Bias alignment (high to low)</option>
+                  <option value="direction">Direction (long then short)</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="di-grid">
+              <div>
+                <span>Trades (filtered / total)</span>
+                <strong>
+                  {replayTradeRows.length} / {replayTradeOutcomes.length}
+                </strong>
+              </div>
+              <div>
+                <span>Wins / Losses / Open</span>
+                <strong>
+                  {replayTradeStats.wins} / {replayTradeStats.losses} / {replayTradeStats.open}
+                </strong>
+              </div>
+              <div>
+                <span>Max Drawdown (R)</span>
+                <strong>{formatNumber(replayTradeStats.max_drawdown_r)}</strong>
+              </div>
+              <div>
+                <span>Long Win/Loss Ratio</span>
+                <strong>{formatWinLossRatio(replayTradeStats.by_side.long)}</strong>
+              </div>
+              <div>
+                <span>Short Win/Loss Ratio</span>
+                <strong>{formatWinLossRatio(replayTradeStats.by_side.short)}</strong>
+              </div>
+            </div>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Signal Time</th>
+                    <th>Type</th>
+                    <th>Direction</th>
+                    <th>Biases (W / D / H)</th>
+                    <th>Alignment</th>
+                    <th>Outcome</th>
+                    <th>Max RR</th>
+                    <th>Max DD (R)</th>
+                    <th>Outcome Duration</th>
+                    <th>To SL</th>
+                    <th>To RR2</th>
+                    <th>To RR5</th>
+                    <th>To RR10</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {replayTradeRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} className="muted">
+                        No replay trades match filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    replayTradeRows.map((trade) => (
+                      <tr key={trade.id}>
+                        <td>{formatTimestamp(trade.signal_time)}</td>
+                        <td>{trade.type}</td>
+                        <td>{trade.direction}</td>
+                        <td>
+                          {trade.weekly_bias} / {trade.daily_bias} / {trade.hwc_bias}
+                        </td>
+                        <td>{trade.bias_alignment_label}</td>
+                        <td>{trade.outcome}</td>
+                        <td>{formatNumber(trade.max_rr)}</td>
+                        <td>{formatNumber(trade.max_drawdown_r)}</td>
+                        <td>{formatDurationMs(trade.outcome_duration_ms)}</td>
+                        <td>{formatDurationMs(trade.time_to_sl_ms)}</td>
+                        <td>{formatDurationMs(trade.time_to_rr2_ms)}</td>
+                        <td>{formatDurationMs(trade.time_to_rr5_ms)}</td>
+                        <td>{formatDurationMs(trade.time_to_rr10_ms)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : null}
 
@@ -2908,6 +3087,303 @@ function formatTimestamp(value) {
   return new Date(value).toLocaleString();
 }
 
+function formatDurationMs(value) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms) || ms < 0) {
+    return "-";
+  }
+  const totalMinutes = Math.floor(ms / 60000);
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function formatWinLossRatio(sideStats) {
+  if (!sideStats) {
+    return "-";
+  }
+  const wins = Number(sideStats.wins ?? 0);
+  const losses = Number(sideStats.losses ?? 0);
+  if (losses <= 0) {
+    return wins > 0 ? "inf" : "-";
+  }
+  return formatNumber(wins / losses);
+}
+
+function compareNullableNumber(a, b) {
+  const aNum = Number(a);
+  const bNum = Number(b);
+  const aValid = Number.isFinite(aNum);
+  const bValid = Number.isFinite(bNum);
+  if (!aValid && !bValid) {
+    return 0;
+  }
+  if (!aValid) {
+    return 1;
+  }
+  if (!bValid) {
+    return -1;
+  }
+  return aNum - bNum;
+}
+
+function toFiniteNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function expectedBiasForDirection(direction) {
+  if (direction === "long") {
+    return "bullish";
+  }
+  if (direction === "short") {
+    return "bearish";
+  }
+  return null;
+}
+
+function getBiasAlignment(direction, context) {
+  const expected = expectedBiasForDirection(direction);
+  const weekly = String(context?.weekly_bias || "neutral").toLowerCase();
+  const daily = String(context?.daily_bias || "neutral").toLowerCase();
+  const hwc = String(context?.hwc_bias || "neutral").toLowerCase();
+  const values = [weekly, daily, hwc];
+  let aligned = 0;
+  if (expected) {
+    values.forEach((value) => {
+      if (value === expected) {
+        aligned += 1;
+      }
+    });
+  }
+  return {
+    aligned_count: aligned,
+    label: `${aligned}/3 aligned`,
+    weekly_bias: weekly,
+    daily_bias: daily,
+    hwc_bias: hwc,
+  };
+}
+
+function evaluateReplaySignalOutcome(signal, candles) {
+  const entry = signal.entry;
+  const sl = signal.sl;
+  const direction = signal.direction;
+  const signalTime = signal.signal_time;
+  const risk = Math.abs(entry - sl);
+  if (!Number.isFinite(entry) || !Number.isFinite(sl) || !Number.isFinite(signalTime) || risk <= 0) {
+    return null;
+  }
+
+  const rr2Target = direction === "long" ? entry + risk * 2 : entry - risk * 2;
+  const rr5Target = direction === "long" ? entry + risk * 5 : entry - risk * 5;
+  const rr10Target = direction === "long" ? entry + risk * 10 : entry - risk * 10;
+
+  let maxRr = 0;
+  let maxDrawdownR = 0;
+  let slTime = null;
+  let rr2Time = null;
+  let rr5Time = null;
+  let rr10Time = null;
+
+  for (const candle of candles) {
+    if (!candle || candle.time <= signalTime) {
+      continue;
+    }
+    const high = toFiniteNumber(candle.high);
+    const low = toFiniteNumber(candle.low);
+    if (high === null || low === null) {
+      continue;
+    }
+
+    if (direction === "long") {
+      maxRr = Math.max(maxRr, (high - entry) / risk);
+      maxDrawdownR = Math.max(maxDrawdownR, (entry - low) / risk);
+      if (slTime === null && low <= sl) {
+        slTime = candle.time;
+      }
+      if (rr2Time === null && high >= rr2Target) {
+        rr2Time = candle.time;
+      }
+      if (rr5Time === null && high >= rr5Target) {
+        rr5Time = candle.time;
+      }
+      if (rr10Time === null && high >= rr10Target) {
+        rr10Time = candle.time;
+      }
+    } else if (direction === "short") {
+      maxRr = Math.max(maxRr, (entry - low) / risk);
+      maxDrawdownR = Math.max(maxDrawdownR, (high - entry) / risk);
+      if (slTime === null && high >= sl) {
+        slTime = candle.time;
+      }
+      if (rr2Time === null && low <= rr2Target) {
+        rr2Time = candle.time;
+      }
+      if (rr5Time === null && low <= rr5Target) {
+        rr5Time = candle.time;
+      }
+      if (rr10Time === null && low <= rr10Target) {
+        rr10Time = candle.time;
+      }
+    }
+  }
+
+  maxRr = Math.max(0, maxRr);
+  maxDrawdownR = Math.max(0, maxDrawdownR);
+
+  let outcome = "open";
+  let outcomeTime = null;
+  if (rr2Time !== null && (slTime === null || rr2Time < slTime)) {
+    outcome = "win";
+    outcomeTime = rr2Time;
+  } else if (slTime !== null && (rr2Time === null || slTime <= rr2Time)) {
+    outcome = "loss";
+    outcomeTime = slTime;
+  }
+
+  const toDuration = (hitTime) => (hitTime === null ? null : Math.max(0, hitTime - signalTime));
+  const outcomeDuration =
+    outcome === "win" ? toDuration(rr2Time) : outcome === "loss" ? toDuration(slTime) : null;
+
+  return {
+    outcome,
+    outcome_time: outcomeTime,
+    outcome_duration_ms: outcomeDuration,
+    time_to_sl_ms: toDuration(slTime),
+    time_to_rr2_ms: toDuration(rr2Time),
+    time_to_rr5_ms: toDuration(rr5Time),
+    time_to_rr10_ms: toDuration(rr10Time),
+    max_rr: maxRr,
+    max_drawdown_r: maxDrawdownR,
+    realized_r: outcome === "win" ? 2 : outcome === "loss" ? -1 : 0,
+  };
+}
+
+function buildReplayTradeOutcomes(items, symbol, tf) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [];
+  }
+
+  const candles = items
+    .map((item) => ({
+      time: Number(item?.time ?? 0),
+      high: toFiniteNumber(item?.candle?.high),
+      low: toFiniteNumber(item?.candle?.low),
+    }))
+    .filter((item) => Number.isFinite(item.time) && item.time > 0 && item.high !== null && item.low !== null)
+    .sort((a, b) => a.time - b.time);
+
+  const rows = [];
+  items.forEach((item, itemIndex) => {
+    const signals = Array.isArray(item?.signals) ? item.signals : [];
+    signals.forEach((signal, signalIndex) => {
+      const direction = String(signal?.direction || "").toLowerCase();
+      if (direction !== "long" && direction !== "short") {
+        return;
+      }
+      const entry = toFiniteNumber(signal?.entry);
+      const sl = toFiniteNumber(signal?.sl);
+      const signalTime = toFiniteNumber(signal?.time ?? item?.time);
+      if (entry === null || sl === null || signalTime === null || signalTime <= 0) {
+        return;
+      }
+      const risk = Math.abs(entry - sl);
+      if (!(risk > 0)) {
+        return;
+      }
+
+      const alignment = getBiasAlignment(direction, signal?.context || {});
+      const outcome = evaluateReplaySignalOutcome(
+        {
+          direction,
+          entry,
+          sl,
+          signal_time: signalTime,
+        },
+        candles
+      );
+      if (!outcome) {
+        return;
+      }
+
+      rows.push({
+        id: `${symbol || "SYM"}-${tf || "TF"}-${itemIndex}-${signalIndex}-${signalTime}`,
+        symbol: symbol || "-",
+        tf: tf || "-",
+        type: signal?.type || "-",
+        direction,
+        signal_time: signalTime,
+        entry,
+        sl,
+        risk,
+        weekly_bias: alignment.weekly_bias,
+        daily_bias: alignment.daily_bias,
+        hwc_bias: alignment.hwc_bias,
+        bias_alignment_count: alignment.aligned_count,
+        bias_alignment_label: alignment.label,
+        ...outcome,
+      });
+    });
+  });
+
+  return rows.sort((a, b) => b.signal_time - a.signal_time);
+}
+
+function summarizeReplayOutcomes(trades) {
+  const rows = Array.isArray(trades) ? trades : [];
+  const bySide = {
+    long: { trades: 0, wins: 0, losses: 0, open: 0 },
+    short: { trades: 0, wins: 0, losses: 0, open: 0 },
+  };
+  let wins = 0;
+  let losses = 0;
+  let open = 0;
+
+  rows.forEach((trade) => {
+    const side = trade.direction === "short" ? "short" : "long";
+    bySide[side].trades += 1;
+    if (trade.outcome === "win") {
+      wins += 1;
+      bySide[side].wins += 1;
+    } else if (trade.outcome === "loss") {
+      losses += 1;
+      bySide[side].losses += 1;
+    } else {
+      open += 1;
+      bySide[side].open += 1;
+    }
+  });
+
+  const resolved = rows
+    .filter((trade) => trade.outcome === "win" || trade.outcome === "loss")
+    .sort((a, b) => (a.outcome_time ?? a.signal_time) - (b.outcome_time ?? b.signal_time));
+  let cumulativeR = 0;
+  let peakR = 0;
+  let maxDrawdownR = 0;
+  resolved.forEach((trade) => {
+    cumulativeR += Number(trade.realized_r ?? 0);
+    peakR = Math.max(peakR, cumulativeR);
+    maxDrawdownR = Math.max(maxDrawdownR, peakR - cumulativeR);
+  });
+
+  return {
+    total: rows.length,
+    wins,
+    losses,
+    open,
+    max_drawdown_r: maxDrawdownR,
+    by_side: bySide,
+  };
+}
+
 function formatAlertStatus(alert) {
   if (alert.notified) {
     return "Notified ✅";
@@ -3371,11 +3847,6 @@ function buildReplayLevels(item) {
       strength: 0
     };
   });
-}
-
-function toFiniteNumber(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
 }
 
 function filterLevelsForChart(levels, candles, maxLevels = 8) {
