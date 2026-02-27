@@ -4,8 +4,8 @@
       "symbol": "BTCUSDT",
       "enabled": true,
       "entry_tfs": [
-        "15m",
-        "1h"
+        "1h",
+        "15m"
       ],
       "setups": {
         "continuation": true,
@@ -27,8 +27,8 @@
       "symbol": "ETHUSDT",
       "enabled": true,
       "entry_tfs": [
-        "15m",
-        "1h"
+        "1h",
+        "15m"
       ],
       "setups": {
         "continuation": true,
@@ -50,8 +50,8 @@
       "symbol": "SOLUSDT",
       "enabled": true,
       "entry_tfs": [
-        "15m",
-        "1h"
+        "1h",
+        "15m"
       ],
       "setups": {
         "continuation": true,
