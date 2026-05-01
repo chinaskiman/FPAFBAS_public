@@ -16,8 +16,8 @@ from .hwc import compute_timeframe_bias
 
 logger = logging.getLogger(__name__)
 
-STREAM_TFS = ("15m", "1h")
 BOOTSTRAP_TFS = ("1w", "1d", "4h", "1h", "15m")
+DEFAULT_STREAM_TFS = ("15m", "1h", "4h", "1d")
 BOOTSTRAP_LIMITS = {
     "15m": 1000,
     "1h": 1000,
@@ -25,6 +25,22 @@ BOOTSTRAP_LIMITS = {
     "1d": 1500,
     "1w": 600,
 }
+
+
+def _resolve_stream_tfs() -> tuple[str, ...]:
+    raw = os.getenv("BINANCE_STREAM_TFS", "").strip()
+    if not raw:
+        return DEFAULT_STREAM_TFS
+    resolved: list[str] = []
+    for item in raw.split(","):
+        tf = item.strip()
+        if not tf or tf not in BOOTSTRAP_TFS or tf in resolved:
+            continue
+        resolved.append(tf)
+    if not resolved:
+        logger.warning("BINANCE_STREAM_TFS is invalid/empty; falling back to default stream timeframes")
+        return DEFAULT_STREAM_TFS
+    return tuple(resolved)
 
 
 class IngestService:
@@ -39,6 +55,7 @@ class IngestService:
         self.rest_client = rest_client
         self.cache_maxlen = cache_maxlen
         self.ws_base = ws_base or os.getenv("BINANCE_FAPI_WS", DEFAULT_WS_BASE)
+        self.stream_tfs = _resolve_stream_tfs()
         self.rest_limits = rest_limits or BOOTSTRAP_LIMITS
         self.journal = journal_store
         self.caches: Dict[Tuple[str, str], CandleCache] = {}
@@ -232,7 +249,7 @@ class IngestService:
                 self.biases.pop(key, None)
 
     def _run_ws(self, symbols: List[str]) -> None:
-        streams = [f"{symbol.lower()}@kline_{tf}" for symbol in symbols for tf in STREAM_TFS]
+        streams = [f"{symbol.lower()}@kline_{tf}" for symbol in symbols for tf in self.stream_tfs]
         url = f"{self.ws_base}/stream?streams=" + "/".join(streams)
         backoff = 1
         max_backoff = 60
@@ -280,7 +297,7 @@ class IngestService:
             return
 
         interval = kline.get("i")
-        if interval not in STREAM_TFS:
+        if interval not in self.stream_tfs:
             return
         symbol = data.get("s") or kline.get("s")
         if not symbol:

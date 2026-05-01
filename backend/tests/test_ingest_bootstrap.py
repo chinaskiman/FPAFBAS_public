@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from app.binance_client import parse_klines
-from app.ingest_service import BOOTSTRAP_LIMITS, BOOTSTRAP_TFS, IngestService
+from app.ingest_service import BOOTSTRAP_LIMITS, BOOTSTRAP_TFS, DEFAULT_STREAM_TFS, IngestService
 
 
 class FakeRestClient:
@@ -68,3 +68,22 @@ def test_sync_symbols_bootstraps_new_and_drops_removed(monkeypatch) -> None:
     assert second["streaming"] == ["ETHUSDT"]
     assert service.get_cache("BTCUSDT", "15m") is None
     assert stream_calls[-1] == ["ETHUSDT"]
+
+
+def test_stream_tfs_respects_env(monkeypatch) -> None:
+    fixture_path = Path(__file__).parent / "fixtures" / "klines.json"
+    raw = json.loads(fixture_path.read_text(encoding="utf-8"))
+    candles = parse_klines(raw)
+    client = FakeRestClient(candles)
+
+    monkeypatch.delenv("BINANCE_STREAM_TFS", raising=False)
+    default_service = IngestService(rest_client=client, cache_maxlen=10)
+    assert default_service.stream_tfs == DEFAULT_STREAM_TFS
+
+    monkeypatch.setenv("BINANCE_STREAM_TFS", "1h,4h,1d,1h,invalid,,15m")
+    env_service = IngestService(rest_client=client, cache_maxlen=10)
+    assert env_service.stream_tfs == ("1h", "4h", "1d", "15m")
+
+    monkeypatch.setenv("BINANCE_STREAM_TFS", "invalid_only")
+    fallback_service = IngestService(rest_client=client, cache_maxlen=10)
+    assert fallback_service.stream_tfs == DEFAULT_STREAM_TFS

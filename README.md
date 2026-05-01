@@ -66,6 +66,7 @@ Common settings:
 - `LOG_LEVEL` (default: `INFO`)
 - `BINANCE_FAPI_REST` (default: `https://fapi.binance.com`)
 - `BINANCE_FAPI_WS` (default: `wss://fstream.binance.com`)
+- `BINANCE_STREAM_TFS` (default: `15m,1h,4h,1d`)
 - `CACHE_MAXLEN` (default: `1200`)
 - `DISABLE_INGESTION=1` to skip Binance bootstrap/WS during tests
 - `POLL_SECONDS` (default: `15`) poller interval
@@ -95,7 +96,7 @@ CORS_ORIGINS=http://localhost,http://127.0.0.1
 
 ## How It Works
 
-- On startup, backend bootstraps klines from Binance REST and opens WS streams for closed 15m/1h candles.
+- On startup, backend bootstraps klines from Binance REST and opens WS streams for closed 15m/1h/4h/1d candles.
 - Candle caches feed indicators, pivots, levels, and signal detection.
 - Alerts are persisted to SQLite and de-duplicated before notifying Telegram.
 - Replay mode runs the same pipeline candle-by-candle without lookahead.

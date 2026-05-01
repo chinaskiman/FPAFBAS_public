@@ -75,6 +75,7 @@ Core runtime:
 - `WATCHLIST_PATH` (default: `/data/watchlist.json`)
 - `POLLER_LOCK_PATH` (default: `/data/poller.lock`)
 - `POLL_SECONDS` (default: `15`)
+- `BINANCE_STREAM_TFS` (default: `15m,1h,4h,1d`)
 - `CORS_ORIGINS` (comma-separated origins)
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
