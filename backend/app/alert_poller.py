@@ -159,13 +159,27 @@ class AlertPoller:
         if self.ingest is None:
             return 0, 0, 0, "Ingest service not initialized"
         config = load_watchlist()
+        last_error: Optional[str] = None
+        if hasattr(self.ingest, "sync_symbols"):
+            try:
+                enabled_symbols = [symbol.symbol for symbol in config.symbols if symbol.enabled]
+                sync_result = self.ingest.sync_symbols(enabled_symbols)
+                if sync_result.get("added") or sync_result.get("removed"):
+                    logger.info(
+                        "Ingest watchlist sync: added=%s removed=%s streaming=%s",
+                        sync_result.get("added", []),
+                        sync_result.get("removed", []),
+                        sync_result.get("streaming", []),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                last_error = f"Ingest watchlist sync failed: {exc}"
+                logger.error(last_error)
         settings = config.quality
         now_ms = _now_ms()
         window_start = now_ms - 60 * 60 * 1000
         scan_count = 0
         new_alerts = 0
         suppressed_new = 0
-        last_error: Optional[str] = None
         seen_keys = set()
         symbol_counts = {}
         global_count = count_alerts_global(window_start)
