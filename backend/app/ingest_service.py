@@ -118,6 +118,11 @@ class IngestService:
             self._stream_symbols = set()
             return
 
+        logger.info(
+            "Starting websocket streams for %s symbols on tfs=%s",
+            len(symbols_list),
+            ",".join(self.stream_tfs),
+        )
         self._stop_event.clear()
         self._ws_thread = threading.Thread(
             target=self._run_ws,
