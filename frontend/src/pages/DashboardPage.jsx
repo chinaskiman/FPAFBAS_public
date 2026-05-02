@@ -2,9 +2,63 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createChart } from "lightweight-charts";
 
 const EMPTY_HEALTH = { status: "loading" };
+const ADMIN_TOKEN_SESSION_KEY = "fpafbas_admin_token";
 
 const fetchJson = async (url, options = {}) => {
   const res = await fetch(url, options);
+  if (!res.ok) {
+    throw new Error(`${url} failed with ${res.status}`);
+  }
+  return res.json();
+};
+
+const getAdminToken = () => {
+  try {
+    return (window.sessionStorage.getItem(ADMIN_TOKEN_SESSION_KEY) || "").trim();
+  } catch (_err) {
+    return "";
+  }
+};
+
+const setAdminToken = (token) => {
+  try {
+    if (token) {
+      window.sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, token);
+    } else {
+      window.sessionStorage.removeItem(ADMIN_TOKEN_SESSION_KEY);
+    }
+  } catch (_err) {
+    // no-op
+  }
+};
+
+const fetchAdminJson = async (url, options = {}) => {
+  const send = async (token) => {
+    const headers = new Headers(options.headers || {});
+    headers.set("Authorization", `Bearer ${token}`);
+    return fetch(url, { ...options, headers });
+  };
+
+  let token = getAdminToken();
+  if (!token) {
+    token = (window.prompt("Enter ADMIN_TOKEN:") || "").trim();
+    if (!token) {
+      throw new Error("ADMIN_TOKEN required for admin endpoint");
+    }
+    setAdminToken(token);
+  }
+
+  let res = await send(token);
+  if (res.status === 401) {
+    setAdminToken("");
+    token = (window.prompt("Invalid ADMIN_TOKEN. Enter it again:") || "").trim();
+    if (!token) {
+      throw new Error(`${url} failed with 401`);
+    }
+    setAdminToken(token);
+    res = await send(token);
+  }
+
   if (!res.ok) {
     throw new Error(`${url} failed with ${res.status}`);
   }
@@ -340,7 +394,7 @@ export default function DashboardPage({ view = "dashboard" }) {
   useEffect(() => {
     const loadPollerStatus = async () => {
       try {
-        const data = await fetchJson("/api/poller/status");
+        const data = await fetchAdminJson("/api/poller/status");
         setPollerStatus(data);
         setPollerError("");
       } catch (err) {
@@ -1064,7 +1118,7 @@ export default function DashboardPage({ view = "dashboard" }) {
 
   const handleSetPollerMode = async (mode) => {
     try {
-      const data = await fetchJson("/api/poller/mode", {
+      const data = await fetchAdminJson("/api/poller/mode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode })
@@ -1079,7 +1133,7 @@ export default function DashboardPage({ view = "dashboard" }) {
   const handleSendTelegramTest = async () => {
     try {
       const payload = telegramText ? { text: telegramText } : {};
-      const data = await fetchJson("/api/telegram/test", {
+      const data = await fetchAdminJson("/api/telegram/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
