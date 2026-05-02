@@ -158,13 +158,12 @@ export default function DashboardPage({ view = "dashboard" }) {
   useEffect(() => {
     const load = async () => {
       try {
-        const [healthData, watchlistData] = await Promise.all([
-          fetchJson("/health"),
-          fetchJson("/api/watchlist")
+        const [watchlistData, symbolsData] = await Promise.all([
+          fetchJson("/api/watchlist"),
+          fetchJson("/api/symbols")
         ]);
-        setHealth(healthData);
+        setHealth({ status: "ok" });
         setWatchlist(watchlistData);
-        const symbolsData = await fetchJson("/api/symbols");
         const apiSymbols = Array.isArray(symbolsData.symbols) ? symbolsData.symbols.map((item) => item.symbol) : [];
         const fallbackSymbols = watchlistData?.symbols ? watchlistData.symbols.map((item) => item.symbol) : [];
         const merged = apiSymbols.length > 0 ? apiSymbols : fallbackSymbols;
